@@ -1,10 +1,21 @@
+# Local build and IDE files.
 .gradle/
+.kotlin/
 .idea/
 **/build/
 local.properties
 *.iml
+
+# Signing material stays local; release APKs/AABs are retained in distribution/.
+keystore.properties
+.signing/
 *.jks
 *.keystore
 *.p12
-keystore.properties
-.signing/
+
+# Editor and operating-system temporary files.
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo

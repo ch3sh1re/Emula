@@ -1,0 +1,14 @@
+# Use LF for source files and CRLF for the Windows Gradle wrapper.
+* text=auto eol=lf
+gradlew.bat text eol=crlf whitespace=cr-at-eol
+
+# Markdown uses trailing spaces for intentional line breaks.
+*.md whitespace=-blank-at-eol
+
+# Preserve release artifacts and store assets byte for byte.
+*.apk binary
+*.aab binary
+*.jar binary
+*.png binary
+*.psd binary
+*.zip binary

@@ -151,6 +151,8 @@ Purpose: inspect raw-NCI availability and configuration without changing it.
 - `app/build.gradle.kts`: SDK levels, application IDs, version, JDK/Kotlin 17,
   signing, and dependencies.
 - `README.md`, `CHANGELOG.md`, `TODO.md`: current behavior and project status.
+- `docs/history/`: archived task prompts, reports, and release-preparation checklist;
+  use only when a request explicitly refers to historical work.
 - `distribution/google-play/`: listing, screenshots, release notes, checksums,
   and signed artifacts. Do not rewrite published release artifacts as part of an
   implementation change.

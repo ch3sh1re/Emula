@@ -122,6 +122,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 The debug build uses its own application ID, `dev.dunno.emula.debug`, so you can install it
 alongside the release build.
 
+`./install_and_grant.sh` installs the debug APK and grants the debug package its permission.
+For a release APK, pass the path and application ID explicitly.
+
+```bash
+./install_and_grant.sh app/build/outputs/apk/release/app-release.apk dev.dunno.emula
+```
+
 The OEM NFC API requires a one-time system permission grant via ADB.
 
 ```bash
@@ -223,3 +230,10 @@ On the Pixel described above, the method returned success and a Flipper Zero rea
 `01 02 03 04` as ISO14443-4A NFCID1. On the Samsung phone, another phone read the emulated UID
 and the office reader accepted it. ISO14443-4B uses PUPI, and FeliCa uses IDm,
 so these technologies present different identifiers.
+
+## Documentation
+
+- [Code map](docs/code-map.md) covers entry points, contracts and checks.
+- [Changelog](CHANGELOG.md) lists changes by version.
+- [TODO](TODO.md) tracks outstanding checks and the most recent release.
+- [Archive](docs/history/README.md) contains historical prompts, reports and older release checklists.
