@@ -122,6 +122,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Debug-сборка использует отдельный application ID `dev.dunno.emula.debug`, поэтому может быть
 установлена рядом с release-версией.
 
+Скрипт `./install_and_grant.sh` устанавливает debug APK и выдаёт разрешение debug-пакету.
+Для release APK передайте путь и application ID явно:
+
+```bash
+./install_and_grant.sh app/build/outputs/apk/release/app-release.apk dev.dunno.emula
+```
+
 Для вызова OEM NFC API приложению один раз нужно выдать системное разрешение через ADB:
 
 ```bash
@@ -223,3 +230,10 @@ adb logcat -s NfcService Emula AndroidRuntime
 `01 02 03 04` как ISO14443-4A NFCID1. На указанном Samsung эмулируемый UID был прочитан
 другим телефоном и принят офисным считывателем. ISO14443-4B использует PUPI, а FeliCa — IDm,
 поэтому они не должны показывать этот UID.
+
+## Документация
+
+- [Карта кода](docs/code-map.md): точки входа, контракты и проверки.
+- [Changelog](CHANGELOG.md): изменения по версиям.
+- [TODO](TODO.md): оставшиеся проверки и статус последнего релиза.
+- [Архив](docs/history/README.md): исторические промпты, отчёты и старые release-чеклисты.
