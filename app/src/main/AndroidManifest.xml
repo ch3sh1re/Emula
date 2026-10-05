@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.NFC" />
+    <!-- Granted manually through ADB; this is not a runtime permission dialog. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- NFC is the app's core function, so unsupported devices should be filtered by Play. -->
+    <uses-feature
+        android:name="android.hardware.nfc"
+        android:required="true"
+        tools:ignore="UnnecessaryRequiredFeature" />
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        tools:targetApi="33">
+
+        <!-- Present on the verified OnePlus CPH2747 firmware; optional elsewhere. -->
+        <uses-library
+            android:name="nfcvendorlib"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
