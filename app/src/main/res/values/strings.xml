@@ -1,0 +1,109 @@
+<resources>
+    <!-- English is the default locale. Add translations in values-<language>/strings.xml. -->
+    <string name="app_name">Emula</string>
+
+    <string name="screen_title">Cards</string>
+    <string name="screen_caption">Tap a card to activate or deactivate it</string>
+    <string name="add_card">Add card</string>
+    <string name="app_menu">App menu</string>
+    <string name="copy_adb_command">Copy ADB command</string>
+    <string name="local_storage_note">Cards are stored on this device</string>
+    <string name="add_first_card">Add your first card</string>
+    <string name="default_card_name">Card</string>
+
+    <string name="card_content_description">%1$s, UID %2$s, %3$s</string>
+    <string name="card_menu_content_description">Card menu for %1$s</string>
+    <string name="card_uid">UID  %1$s</string>
+    <string name="card_state_in_use">Active</string>
+    <string name="card_state_ready">Ready</string>
+    <string name="menu_edit">Edit</string>
+    <string name="menu_delete">Delete</string>
+    <string name="menu_raw_mode">Raw mode</string>
+    <string name="menu_nfc_diagnostics">NFC diagnostics</string>
+    <string name="menu_privacy_policy">Privacy policy</string>
+    <string name="browser_unavailable">No browser is available</string>
+
+    <string name="raw_mode_dialog_title">Enable raw mode?</string>
+    <string name="raw_mode_dialog_message">Standard NFC mode is available on this device. Raw mode is intended for compatibility testing: the app will configure the NFC-A controller parameters directly and verify the UID by reading it back.\n\nThis choice is saved when the app closes and applies to future card changes. An active card will not restart automatically.</string>
+    <string name="experimental_raw_dialog_title">Try experimental raw mode?</string>
+    <string name="experimental_raw_dialog_message">Controller compatibility has not been verified for %1$s %2$s running Android %3$s (API %4$d).\n\nEmula will first read and retain the current NFC configuration, then try the compatibility profile. If activation fails, it will restore the captured values. A successful choice is remembered only for this firmware build.</string>
+    <string name="experimental_raw_try">Try raw mode</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_enable">Enable</string>
+    <string name="action_close">Close</string>
+    <string name="action_save">Save</string>
+    <string name="diagnostics_check_raw_nci">Check raw NCI</string>
+    <string name="diagnostics_copy">Copy</string>
+    <string name="diagnostics_email">Email</string>
+    <string name="diagnostics_email_title">Email diagnostics?</string>
+    <string name="diagnostics_email_message">The report includes your device model, Android version, firmware and NFC operation details. It may contain card UIDs.\n\nYour email app will open a draft to %1$s. Review the report and remove any information you do not want to share before sending.</string>
+    <string name="diagnostics_open_email">Open email</string>
+    <string name="diagnostics_email_subject">Emula NFC diagnostics — %1$s %2$s</string>
+    <string name="diagnostics_email_body">What happened:\n[Describe the problem and what you expected.]\n\nReader used, if known:\n[Model and whether it detected the phone or read a UID.]\n\nDiagnostics (review before sending):\n%1$s</string>
+    <string name="diagnostics_email_unavailable_title">No email app available</string>
+    <string name="diagnostics_email_unavailable_message">Copy the report, review it for card UIDs or other information you do not want to share, then send it to %1$s using your preferred email service.</string>
+    <string name="diagnostics_copied">Diagnostics copied</string>
+    <string name="diagnostics_reading">Reading controller parameters…</string>
+    <string name="diagnostics_failed">Check failed: %1$s</string>
+    <string name="diagnostics_read_only_note">This check only reads the controller configuration and does not change the UID.</string>
+
+    <string name="delete_card_title">Delete card?</string>
+    <string name="delete_card_message">%1$s will be removed from this device.</string>
+    <string name="card_deleted">Card deleted</string>
+    <string name="progress_disable_before_delete">Deactivating card before deletion…</string>
+
+    <string name="editor_add_title">Add card</string>
+    <string name="editor_edit_title">Edit card</string>
+    <string name="editor_name_label">Name</string>
+    <string name="editor_name_hint">For example, Office</string>
+    <string name="editor_uid_label">UID, 4 bytes</string>
+    <string name="editor_read_card">Read from card</string>
+    <string name="editor_read_card_hint">Hold a physical card near the back of your phone to read its UID.</string>
+    <string name="editor_hold_card">Hold card near phone…</string>
+    <string name="editor_hold_card_instruction">Hold the card near the back of your phone</string>
+    <string name="editor_name_required">Enter a card name</string>
+    <string name="editor_uid_required">Enter two hexadecimal digits for every byte</string>
+    <string name="editor_card_saved">Card “%1$s” saved</string>
+    <string name="progress_disable_edited_card">Deactivating the card being edited…</string>
+    <string name="progress_disable_before_reading">Deactivating card before reading…</string>
+    <string name="editor_reader_failed">Could not start card reading: %1$s</string>
+    <string name="editor_uid_length_error">A 4-byte UID is required. Received: %1$d</string>
+    <string name="editor_uid_read">UID read. Check the values and save the card.</string>
+
+    <string name="progress_restore_standard_nfc">Restoring standard NFC…</string>
+    <string name="progress_activate_card">Activating “%1$s”…</string>
+    <string name="standard_nfc_restored">Standard NFC restored</string>
+    <string name="card_active">Card “%1$s” is active</string>
+    <string name="nfc_error">NFC error: %1$s</string>
+    <string name="raw_nfc_error">Raw NFC error: %1$s</string>
+    <string name="permission_required_short">Grant the permission once through ADB</string>
+    <string name="permission_required">Emulation requires a one-time ADB permission grant</string>
+    <string name="permission_dialog_title">Permission needed</string>
+    <string name="permission_dialog_message">To activate cards, grant Emula permission once using ADB.\n\n1. Enable USB debugging on your phone.\n2. Connect it to a computer with ADB installed and accept the debugging prompt.\n3. Run this command on the computer:\n\n%1$s\n\nYou can keep Emula open. It will detect the permission automatically.</string>
+    <string name="enable_nfc_first">Turn on NFC first</string>
+    <string name="nfc_permission_snackbar">ADB permission required</string>
+    <string name="nfc_turn_on_snackbar">Turn on NFC first</string>
+    <string name="no_compatible_nfc_interface">No compatible UID emulation interface found.</string>
+    <string name="nfc_activation_failed">Card activation failed</string>
+    <string name="nfc_failure_support_message">UID emulation depends on your phone and firmware. To help investigate this device, open NFC diagnostics and email the report to %1$s.\n\nInclude what happened and which reader you used, if known.</string>
+    <string name="nfc_deactivation_failed">Card deactivation failed</string>
+    <string name="nfc_disabled_pending_restore">Turn on NFC to restore the controller configuration left by the previous session</string>
+    <string name="pending_restore_interface_unavailable">Could not restore the previous raw NFC configuration: the raw interface is unavailable</string>
+    <string name="nfc_reset_failed">Could not reset NFC: %1$s</string>
+    <string name="empty_cards_status">Add a card manually or read one over NFC</string>
+    <string name="raw_mode_selected">Raw mode will be used for future card changes</string>
+    <string name="standard_mode_selected">Standard mode will be used for future card changes</string>
+    <string name="adb_command_copied">ADB command copied</string>
+    <string name="adb_permission_granted">ADB permission detected. You can now try activating cards.</string>
+
+    <string name="legacy_standard_nfc_restored">Standard NFC restored through raw NCI</string>
+    <string name="legacy_reset_accepted">Raw NCI reset command accepted</string>
+    <string name="legacy_exact_profile_verified">UID and NFC-A profile verified by the controller</string>
+    <string name="legacy_uid_verified">UID verified; the NFC stack replaced part of the NFC-A profile</string>
+
+    <string name="adb_clip_label" translatable="false">ADB permission</string>
+    <string name="diagnostics_clip_label" translatable="false">NFC diagnostics</string>
+    <string name="diagnostics_email_address" translatable="false">dunn0dud3@gmail.com</string>
+    <string name="uid_field_hint" translatable="false">00</string>
+    <string name="privacy_policy_url" translatable="false">https://sites.google.com/view/emula-privacy-policy</string>
+</resources>
