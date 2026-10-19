@@ -43,7 +43,7 @@ Opening the app preserves the current background session.
 [Quick actions](docs/features/quick-access/README.md) ·
 [Background control](docs/features/background-control/README.md).
 
-On the Moto G Stylus 5G (2024), `boston`, running Android 15–17, Raw mode first tries
+On the Moto G Stylus 5G (2024), `boston`, running Android 15 or later, Raw mode first tries
 the experimental ST vendor method. The app selects Raw mode automatically when the regular
 OEM API is absent. With the OEM API available, the ST path requires explicitly choosing Raw mode.
 Emula saves the original configuration and checks it during restoration. Direct raw NCI

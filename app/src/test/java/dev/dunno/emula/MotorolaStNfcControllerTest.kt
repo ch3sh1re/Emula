@@ -34,7 +34,8 @@ class MotorolaStNfcControllerTest {
         assertTrue(allowed(true, sdk = 36))
         assertTrue(allowed(true, sdk = 37))
         assertFalse(allowed(true, sdk = 34))
-        assertFalse(allowed(true, sdk = 38))
+        assertTrue(allowed(true, sdk = 38))
+        assertTrue(allowed(true, sdk = 100))
         assertFalse(allowed(true, manufacturer = "Samsung"))
         assertFalse(allowed(true, model = "moto g stylus 5G - 2023"))
         assertFalse(allowed(true, device = "avatrn"))
@@ -52,12 +53,14 @@ class MotorolaStNfcControllerTest {
     }
 
     @Test
-    fun releaseRawCandidateTargetsOnlyBostonOnAndroid15Through17() {
+    fun releaseRawCandidateTargetsOnlyBostonOnAndroid15AndNewer() {
         fun target(enabled: Boolean = true, sdk: Int = 35, manufacturer: String? = "motorola",
                    model: String? = "moto g stylus 5G - 2024", device: String? = "boston") =
             MotorolaStNfcController.isRawModeTarget(enabled, sdk, manufacturer, model, device)
-        for (sdk in 33..39) assertEquals("SDK $sdk", sdk in 35..37, target(sdk = sdk))
-        for (sdk in 35..37) assertFalse(target(enabled = false, sdk = sdk))
+        for (sdk in listOf(0, 33, 34, 35, 36, 37, 38, 39, 100)) {
+            assertEquals("SDK $sdk", sdk >= 35, target(sdk = sdk))
+            assertFalse(target(enabled = false, sdk = sdk))
+        }
         assertTrue(target(manufacturer = "MOTOROLA", device = "BOSTON"))
         assertFalse(target(manufacturer = "Samsung"))
         assertFalse(target(model = "moto g stylus 5G - 2023"))

@@ -295,7 +295,7 @@ Purpose: use Android/OEM NFC-A tag emulation when the extension API exists.
   `com.st.android.nfc_extensions.NfcAdapterStExtensions` library and its
   `programHceParameters` / `setNciConfig` methods without invoking setters.
   Phone debug/release builds enable MOTOROLA_ST_RAW_COMPATIBILITY only for
-  `moto g stylus 5G - 2024`, `boston`, API 35-37. PhoneNfcBackend.useMotorolaRaw
+  `moto g stylus 5G - 2024`, `boston`, API 35+. PhoneNfcBackend.useMotorolaRaw
   selects it for forced raw or automatic raw when the normal OEM API is absent;
   it does not advertise OEM support or displace an available normal OEM API.
   The older OEM experiment flag remains off by default, with explicit debug opt-in
