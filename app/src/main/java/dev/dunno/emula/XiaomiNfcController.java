@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.nfc.NfcAdapter;
 import android.os.Build;
-import android.os.SystemClock;
 import android.provider.Settings;
 
 import java.lang.reflect.Method;
@@ -25,7 +24,6 @@ final class XiaomiNfcController {
     private static final int RESTORE_VERSION = 1;
     private static final VendorCallGate CALLS = new VendorCallGate();
     private static volatile boolean restarting;
-    private static volatile long restartFinished = Long.MIN_VALUE;
 
     private XiaomiNfcController() {}
 
@@ -236,9 +234,10 @@ final class XiaomiNfcController {
         }
     }
 
-    static boolean ownsRestartBroadcast() {
-        long finished = restartFinished;
-        return restarting || (finished != Long.MIN_VALUE && SystemClock.elapsedRealtime() - finished < 1_000);
+    static boolean ownsRestartBroadcast(Context context) {
+        // OFF may be delivered long after the setter returned. A persistent override
+        // also survives a manual OFF/ON cycle; only a final OFF invalidates its UID.
+        return restarting || hasPendingRestore(context);
     }
 
     private static Api resolveApi(Context context) throws Exception {
@@ -348,7 +347,6 @@ final class XiaomiNfcController {
                         return (Integer) status;
                     });
                 } finally {
-                    restartFinished = SystemClock.elapsedRealtime();
                     restarting = false;
                 }
             }, 15_000);
