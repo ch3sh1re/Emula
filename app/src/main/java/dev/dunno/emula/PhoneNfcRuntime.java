@@ -30,15 +30,21 @@ final class PhoneNfcRuntime {
     private boolean readerBusy;
     private Object uiOwner;
     private BooleanSupplier uiBlocked;
+    final NfcUiContext<android.app.Activity> pollingUi = new NfcUiContext<>();
 
     static synchronized PhoneNfcRuntime get(Context context) {
-        if (instance == null) instance = new PhoneNfcRuntime(context, new PhoneNfcBackend(context));
+        if (instance == null) instance = new PhoneNfcRuntime(context);
         return instance;
     }
 
     PhoneNfcRuntime(Context context, PhoneNfcSession.Backend backend) {
         this.context = context.getApplicationContext();
         session = new PhoneNfcSession(backend);
+    }
+
+    private PhoneNfcRuntime(Context context) {
+        this.context = context.getApplicationContext();
+        session = new PhoneNfcSession(new PhoneNfcBackend(this.context, pollingUi));
     }
 
     static synchronized PhoneNfcRuntime installForTest(Context context, PhoneNfcSession.Backend backend) {
@@ -70,8 +76,26 @@ final class PhoneNfcRuntime {
     void addListener(Runnable listener) { listeners.add(listener); }
     void removeListener(Runnable listener) { listeners.remove(listener); }
     void setReaderBusy(boolean busy) { readerBusy = busy; }
-    void attachUi(Object owner, BooleanSupplier blocked) { uiOwner = owner; uiBlocked = blocked; }
-    void detachUi(Object owner) { if (uiOwner == owner) { uiOwner = null; uiBlocked = null; readerBusy = false; } }
+    void attachUi(Object owner, BooleanSupplier blocked) {
+        uiOwner = owner;
+        uiBlocked = blocked;
+        if (owner instanceof android.app.Activity) pollingUi.attach((android.app.Activity) owner);
+    }
+    void detachUi(Object owner) {
+        if (uiOwner == owner) { uiOwner = null; uiBlocked = null; readerBusy = false; }
+        if (owner instanceof android.app.Activity) pollingUi.detach((android.app.Activity) owner);
+    }
+    void resumeUi(android.app.Activity owner) { pollingUi.resume(owner); }
+    void pauseUi(android.app.Activity owner) { pollingUi.pause(owner); }
+    void focusUi(android.app.Activity owner, boolean focused) { pollingUi.focus(owner, focused); }
+
+    String pollingCapabilities(boolean rawApi) {
+        android.app.Activity activity = pollingUi.attached();
+        return "Polling method (foreground): " + (!rawApi || activity == null ? "UNAVAILABLE"
+                : LegacyNfcController.pollingMethod(activity))
+                + "\nPolling method (background): " + (!rawApi ? "UNAVAILABLE"
+                : LegacyNfcController.pollingMethod(context));
+    }
 
     PhoneNfcSession.Reason quickProblem(String id) {
         if (readerBusy || (uiBlocked != null && uiBlocked.getAsBoolean())) return PhoneNfcSession.Reason.BUSY;
@@ -213,6 +237,7 @@ final class PhoneNfcRuntime {
                 case DISABLED: resource = R.string.enable_nfc_first; break;
                 case PERMISSION: resource = R.string.permission_required; break;
                 case CONSENT: resource = R.string.background_approve_in_app; break;
+                case FOREGROUND_REQUIRED: resource = R.string.raw_foreground_required; break;
                 case MISSING: resource = R.string.quick_card_removed; break;
                 case CHOOSE: resource = R.string.quick_choose_card; break;
                 case BUSY: resource = R.string.background_busy; break;

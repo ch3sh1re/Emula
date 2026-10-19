@@ -246,6 +246,17 @@ Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active
   changes, timeout fencing and process-death recovery. OemOperationReport records
   the trial and separate rollback without claiming RF/payment verification.
   See docs/features/xiaomi-garnet/release-trial.txt for evidence and remaining limits.
+- NfcUiContext publishes the attached/resumed/focused phone Activity through a weak
+  reference. PhoneNfcRuntime owns it; MainActivity forwards lifecycle/focus events.
+  PhoneNfcBackend acquires it only for a raw operation, with a bounded startup/focus
+  wait. PollingControl therefore receives the actual Activity for discovery pause
+  and resumes that same Activity. The worker queue survives recreation. Unknown
+  raw writes with no polling control require foreground UI before persisting a
+  new recovery marker or issuing SET. Diagnostics lists foreground and background
+  polling methods separately through PhoneNfcRuntime.pollingCapabilities.
+  NfcUiContextTest covers startup, pause, replacement, detach, focus timeout and
+  interruption; BackgroundNfcChecks verifies real Activity publication/release
+  with the fake backend and no NFC writes.
 - BackgroundNfcService is an unexported connectedDevice foreground service. It
   promotes before queued hardware work, keeps a stop notification while active or
   recovery is pending, requests immediate notification visibility, stops when idle,

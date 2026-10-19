@@ -1,6 +1,7 @@
 package dev.dunno.emula;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -16,9 +17,11 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     private final NfcAdapter adapter;
     private final SharedPreferences legacy;
     private final SharedPreferences settings;
+    private final NfcUiContext<Activity> pollingUi;
 
-    PhoneNfcBackend(Context context) {
+    PhoneNfcBackend(Context context, NfcUiContext<Activity> pollingUi) {
         this.context = context.getApplicationContext();
+        this.pollingUi = pollingUi;
         adapter = NfcAdapter.getDefaultAdapter(context);
         legacy = context.getSharedPreferences("legacy_nfc", Context.MODE_PRIVATE);
         settings = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE);
@@ -63,12 +66,33 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         if (adapter == null) return PhoneNfcSession.Reason.NO_NFC;
         if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
         if (!permission()) return PhoneNfcSession.Reason.PERMISSION;
-        if (card == null && recoveryPending()) return null;
+        if (card == null && recoveryPending()) {
+            return legacy.getBoolean("pending_unverified", false) && needsForeground()
+                    ? PhoneNfcSession.Reason.FOREGROUND_REQUIRED : null;
+        }
         if (useXiaomi()) return null;
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) return PhoneNfcSession.Reason.UNSUPPORTED;
+        if ((path == NfcActivationPolicy.Path.EXPERIMENTAL_RAW
+                || path == NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW) && needsForeground()) {
+            return PhoneNfcSession.Reason.FOREGROUND_REQUIRED;
+        }
         if (path == NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW) return PhoneNfcSession.Reason.CONSENT;
         return null;
+    }
+
+    private boolean needsForeground() {
+        return !pollingUi.isResumed()
+                && "UNAVAILABLE".equals(LegacyNfcController.pollingMethod(context));
+    }
+
+    private Context pollingContext(boolean unverified) throws Exception {
+        Activity activity = pollingUi.acquire(2_000);
+        Context selected = activity == null ? context : activity;
+        if (unverified && "UNAVAILABLE".equals(LegacyNfcController.pollingMethod(selected))) {
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FOREGROUND_REQUIRED);
+        }
+        return selected;
     }
 
     @Override public boolean initialize() throws Exception {
@@ -218,13 +242,11 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                         throw new IllegalStateException("Could not snapshot every NFC parameter before writing");
                     }
                     sessionOriginal = previous == null ? original : loadOriginal();
-                    saveLegacy(true, true, sessionOriginal);
                 } else {
                     original = loadOriginal();
                     sessionOriginal = original;
                 }
             }
-            if (card != null && !unverified) saveLegacy(true, false, null);
             boolean alreadyRestored = false;
             if (card == null && unverified && MotorolaStNfcController.isTargetDevice()
                     && operation == RawOperationReport.Operation.STARTUP_PENDING_RESTORE) {
@@ -233,8 +255,10 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 if (alreadyRestored) LegacyNfcController.recordAlreadyRestored(operation, probe);
             }
             if (!alreadyRestored) {
+                Context pollingContext = pollingContext(unverified);
+                if (card != null) saveLegacy(true, unverified, sessionOriginal);
                 writeAttempted = true;
-                LegacyNfcController.setCardEnabled(context,
+                LegacyNfcController.setCardEnabled(pollingContext,
                         card == null ? new byte[UidCodec.DEFAULT_UID_LENGTH] : card.uid,
                         card != null, operation, unverified, original);
             }
@@ -243,6 +267,9 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             if (card != null && unverified) settings.edit()
                     .putString("experimental_raw_fingerprint", Build.FINGERPRINT).apply();
         } catch (Throwable primary) {
+            if (!writeAttempted && primary instanceof PhoneNfcSession.Failure) {
+                throw (PhoneNfcSession.Failure) primary;
+            }
             // A failed write has no confirmed active UID until rollback/readback succeeds.
             if (writeAttempted) CardSession.clearActiveCard();
             RawOperationReport primaryReport = writeAttempted ? LegacyNfcController.getLastOperationReport() : null;
@@ -251,7 +278,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             if (card != null && writeAttempted) {
                 try {
                     boolean restorePrevious = !unverified && previous != null;
-                    LegacyNfcController.setCardEnabled(context,
+                    LegacyNfcController.setCardEnabled(pollingContext(unverified),
                             restorePrevious ? previous.uid : new byte[UidCodec.DEFAULT_UID_LENGTH],
                             restorePrevious, RawOperationReport.Operation.ROLLBACK_AFTER_ACTIVATION_FAILURE,
                             unverified, original);
@@ -266,6 +293,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     catch (Throwable persistence) { rollback.addSuppressed(persistence); }
                 }
             }
+            // Context acquisition can fail before a new controller report is created.
+            if (rollbackReport == primaryReport) rollbackReport = null;
             LegacyNfcController.attachRollback(primaryReport, rollbackReport, rollbackFailure);
             String message = writeAttempted ? LegacyNfcController.lastFailureSummary(primary) : primary.getMessage();
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, true,
