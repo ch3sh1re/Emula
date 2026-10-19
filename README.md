@@ -43,7 +43,7 @@
 [Подробности](docs/features/quick-access/README.md),
 [фоновое управление](docs/features/background-control/README.md).
 
-На Moto G Stylus 5G (2024), `boston`, Android 15–17 в Raw mode сначала пробуется
+На Moto G Stylus 5G (2024), `boston`, Android 15+ в Raw mode сначала пробуется
 экспериментальный ST vendor-метод. Если обычного OEM API нет, raw выбирается
 автоматически; при доступном OEM API ST используется только после выбора Raw mode.
 Исходная конфигурация сохраняется и проверяется при восстановлении. Прямой raw NCI

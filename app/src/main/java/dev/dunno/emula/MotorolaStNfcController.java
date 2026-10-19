@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * Model-scoped ST raw compatibility on Android 15-17; the older OEM experiment
+ * Model-scoped ST raw compatibility on Android 15+; the older OEM experiment
  * remains disabled by default and limited to Android 15.
  * Source: STMicroelectronics/ST54-android-packages-apps-Nfc, android-15,
  * NfcService.StExtrasService.programHceParameters and NfcStExtensions.setNciConfig.
@@ -47,7 +47,7 @@ final class MotorolaStNfcController {
 
     static boolean isRawModeTarget(boolean enabled, int sdk, String manufacturer,
             String model, String device) {
-        return enabled && sdk >= 35 && sdk <= 37 && "motorola".equalsIgnoreCase(manufacturer)
+        return enabled && sdk >= 35 && "motorola".equalsIgnoreCase(manufacturer)
                 && "moto g stylus 5G - 2024".equalsIgnoreCase(model)
                 && "boston".equalsIgnoreCase(device);
     }
