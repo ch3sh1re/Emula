@@ -52,6 +52,32 @@ class PhoneNfcSessionTest {
         assertEquals(listOf("restore", "change:first:false"), backend.calls)
     }
 
+    @Test fun delayedVendorRestartBroadcastDoesNotUndoActivationOrResetOnUiOpen() {
+        val backend = Backend(listOf(first))
+        val session = PhoneNfcSession(backend)
+        session.toggle(first.id)
+        backend.pending = true // Persistent vendor config belongs to this active session.
+        session.adapterOff(true, true) // OFF is delivered after the setter enabled NFC again.
+        session.initialize() // Opening the app must keep the activated card.
+        assertEquals(first.id, backend.active)
+        assertTrue(backend.pending)
+        assertEquals(listOf("restore", "change:first:false"), backend.calls)
+    }
+
+    @Test fun finalOffDuringVendorRestartStillInvalidatesActiveCardAndKeepsRecovery() {
+        val backend = Backend(listOf(first))
+        val session = PhoneNfcSession(backend)
+        session.toggle(first.id)
+        backend.pending = true
+        session.adapterOff(true, false)
+        assertNull(backend.active)
+        assertTrue(backend.pending)
+        // Once NFC is enabled again, opening the app performs recovery.
+        session.initialize()
+        assertFalse(backend.pending)
+        assertEquals(listOf("restore", "change:first:false", "restore"), backend.calls)
+    }
+
     @Test fun coldStopRestoresThePendingSessionExactlyOnce() {
         val backend = Backend(listOf(first)).apply { pending = true }
         PhoneNfcSession(backend).change(null, false)

@@ -58,11 +58,11 @@ final class PhoneNfcRuntime {
     boolean isBusy() { return running || !queue.isEmpty(); }
     static synchronized void adapterOff(boolean ownedRestart) {
         if (instance == null) return;
-        instance.enqueue(new Job<>(false, false, true, state -> {
+        PhoneNfcRuntime runtime = instance;
+        runtime.enqueue(new Job<>(false, false, true, state -> {
             // The NXP setter itself toggles NFC. Evaluate only after its queued transaction.
-            android.nfc.NfcAdapter adapter = android.nfc.NfcAdapter.getDefaultAdapter(instance.context);
-            if (ownedRestart && adapter != null && adapter.isEnabled()) return null;
-            state.adapterOff();
+            android.nfc.NfcAdapter adapter = android.nfc.NfcAdapter.getDefaultAdapter(runtime.context);
+            state.adapterOff(ownedRestart, adapter != null && adapter.isEnabled());
             return null;
         }, null));
     }

@@ -10,7 +10,7 @@ public final class NfcQuickAccessReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         if (NfcAdapter.ACTION_ADAPTER_STATE_CHANGED.equals(intent.getAction())) {
             if (intent.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, NfcAdapter.STATE_OFF) == NfcAdapter.STATE_OFF) {
-                PhoneNfcRuntime.adapterOff(XiaomiNfcController.ownsRestartBroadcast());
+                PhoneNfcRuntime.adapterOff(XiaomiNfcController.ownsRestartBroadcast(context));
             }
             QuickAccess.refresh(context);
         }

@@ -49,6 +49,11 @@ final class PhoneNfcSession {
         backend.forgetActive(); // Recovery snapshots remain intact until an explicit operation.
     }
 
+    void adapterOff(boolean ownedRestart, boolean nfcEnabled) {
+        if (ownedRestart && nfcEnabled) return;
+        adapterOff();
+    }
+
     SavedCard selected(String id) throws Failure {
         List<SavedCard> cards = backend.cards();
         SavedCard card = id == null ? QuickCardPolicy.tileCard(cards, backend.activeId(), backend.lastCardId())
