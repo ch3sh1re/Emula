@@ -48,6 +48,7 @@ android {
         versionName = "1.0.0-wear"
         testInstrumentationRunner = "dev.dunno.emula.WatchFlowInstrumentation"
         buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "false")
+        buildConfigField("boolean", "MOTOROLA_ST_RAW_COMPATIBILITY", "false")
     }
     signingConfigs {
         if (signingFile.isFile) create("release") {

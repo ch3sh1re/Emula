@@ -13,7 +13,8 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * Disabled by default: experimental ST vendor API, scoped to Boston on Android 15.
+ * Model-scoped ST raw compatibility on Android 15-17; the older OEM experiment
+ * remains disabled by default and limited to Android 15.
  * Source: STMicroelectronics/ST54-android-packages-apps-Nfc, android-15,
  * NfcService.StExtrasService.programHceParameters and NfcStExtensions.setNciConfig.
  * Controller/reader behavior on Motorola remains unverified until the device test.
@@ -39,10 +40,33 @@ final class MotorolaStNfcController {
                 && "boston".equalsIgnoreCase(device);
     }
 
+    static boolean isRawModeTarget() {
+        return isRawModeTarget(BuildConfig.MOTOROLA_ST_RAW_COMPATIBILITY,
+                Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL, Build.DEVICE);
+    }
+
+    static boolean isRawModeTarget(boolean enabled, int sdk, String manufacturer,
+            String model, String device) {
+        return enabled && sdk >= 35 && sdk <= 37 && "motorola".equalsIgnoreCase(manufacturer)
+                && "moto g stylus 5G - 2024".equalsIgnoreCase(model)
+                && "boston".equalsIgnoreCase(device);
+    }
+
+    /** Raw includes the automatic fallback when the normal OEM API is unavailable. */
+    static boolean useRawMode(boolean targeted, boolean forcedRaw, boolean oemAvailable,
+            boolean pending) {
+        return pending || (targeted && (forcedRaw || !oemAvailable));
+    }
+
+    static boolean attemptRawMode(boolean selected, boolean confirmedRawFallback, boolean pending) {
+        return selected && (!confirmedRawFallback || pending);
+    }
+
     /** Disabling new activations must not strand a snapshot from an earlier test build. */
     static boolean isApiAllowed(boolean experiment, boolean pending, int sdk,
             String manufacturer, String model, String device) {
-        return isTargetDevice(experiment || pending, sdk, manufacturer, model, device);
+        return isTargetDevice(experiment, sdk, manufacturer, model, device)
+                || isRawModeTarget(pending, sdk, manufacturer, model, device);
     }
 
     static boolean hasPendingRestore(Context context) {
@@ -78,9 +102,17 @@ final class MotorolaStNfcController {
 
     /** Resolves the optional library and Binder-backed adapter; never calls an NFC setter. */
     static Probe probe(Context context) {
-        if (!isTargetDevice()) return new Probe(false, false, null);
+        return probe(context, false);
+    }
+
+    static Probe probeRawMode(Context context) {
+        return probe(context, true);
+    }
+
+    private static Probe probe(Context context, boolean rawMode) {
+        if (!(rawMode ? isRawModeTarget() : isTargetDevice())) return new Probe(false, false, null);
         try {
-            resolveApi(context);
+            resolveApi(context, rawMode);
             return new Probe(true, true, null);
         } catch (Exception failure) {
             return new Probe(true, false, describe(failure));
@@ -89,17 +121,36 @@ final class MotorolaStNfcController {
         }
     }
 
+    static String rawModeStatus(Context context, boolean detailed) {
+        Probe probe = probeRawMode(context);
+        String result = "Motorola ST raw path: " + (!probe.targeted ? "not targeted"
+                : probe.available ? "available (experimental, raw mode only)" : "unavailable");
+        if (probe.targeted) result += "\nST identification: model/API match; controller chip unverified";
+        if (detailed && probe.failure != null) result += "\nMotorola ST raw probe failure: " + probe.failure;
+        return result;
+    }
+
     static void setCardEnabled(Context context, byte[] uid, boolean enabled,
             OemOperationReport report) throws Exception {
+        setCardEnabled(context, uid, enabled, report, false);
+    }
+
+    static void setRawCardEnabled(Context context, byte[] uid, boolean enabled,
+            OemOperationReport report) throws Exception {
+        setCardEnabled(context, uid, enabled, report, true);
+    }
+
+    private static void setCardEnabled(Context context, byte[] uid, boolean enabled,
+            OemOperationReport report, boolean rawMode) throws Exception {
         report.path = OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE;
         report.profile = "cts-type-4a / experimental Motorola Boston ST HCE";
         report.atqa = new byte[] {0x06, 0x0C};
         report.sak = new byte[] {0x20};
         report.uid = OemOperationReport.copy(uid);
         report.notes.add("ST programHceParameters returns void; raw GET_CONFIG supplies readback. "
-                + "No direct raw SET_CONFIG fallback is performed.");
+                + "This ST transaction sends no direct raw SET_CONFIG; fallback requires a clean restore state.");
 
-        if (enabled && !isTargetDevice()) {
+        if (enabled && !(rawMode ? isRawModeTarget() : isTargetDevice())) {
             throw new IllegalStateException("Motorola ST activation is disabled or the device is not targeted");
         }
 
@@ -111,7 +162,7 @@ final class MotorolaStNfcController {
             return;
         }
         report.stage = "RESOLVE_MOTOROLA_ST_API";
-        Api api = resolveApi(context);
+        Api api = resolveApi(context, rawMode);
         change(api, store, Build.FINGERPRINT, uid, enabled, report);
     }
 
@@ -245,9 +296,10 @@ final class MotorolaStNfcController {
         }
     }
 
-    private static Api resolveApi(Context context) throws Exception {
+    private static Api resolveApi(Context context, boolean rawMode) throws Exception {
         if (!isApiAllowed(BuildConfig.MOTOROLA_ST_EXPERIMENT, hasPendingRestore(context),
-                Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL, Build.DEVICE)) {
+                Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL, Build.DEVICE)
+                && !(rawMode && isRawModeTarget())) {
             throw new IllegalStateException("Motorola ST API is not allowed on this device");
         }
         Class<?> type = Class.forName(ADAPTER, false, context.getClassLoader());

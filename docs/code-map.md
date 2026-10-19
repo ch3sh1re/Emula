@@ -294,11 +294,14 @@ Purpose: use Android/OEM NFC-A tag emulation when the extension API exists.
 - `MotorolaStNfcController` probes the optional
   `com.st.android.nfc_extensions.NfcAdapterStExtensions` library and its
   `programHceParameters` / `setNciConfig` methods without invoking setters.
-  Ordinary phone debug/release builds disable this candidate: model/SDK/library
-  detection does not identify the NFCC chip, and external-reader proof is absent.
-  Explicit debug opt-in (`-Pemula.motorolaStExperiment=true`) and historical
-  `internalSt` remain limited to `moto g stylus 5G - 2024`, `boston`, API 35.
-  The watch BuildConfig keeps it disabled. isApiAllowed separately permits resolving
+  Phone debug/release builds enable MOTOROLA_ST_RAW_COMPATIBILITY only for
+  `moto g stylus 5G - 2024`, `boston`, API 35-37. PhoneNfcBackend.useMotorolaRaw
+  selects it for forced raw or automatic raw when the normal OEM API is absent;
+  it does not advertise OEM support or displace an available normal OEM API.
+  The older OEM experiment flag remains off by default, with explicit debug opt-in
+  and historical internalSt restricted to API 35. Both flags are false for watches.
+  Model/SDK/API detection does not identify the chip or prove reader behavior.
+  isApiAllowed separately permits resolving
   the API for an existing snapshot on that model with the flag off; setCardEnabled
   still rejects new activations. OemNfcController and PhoneNfcBackend prioritize
   pending ST restoration independently of the activation flag; wrong firmware/model
@@ -312,17 +315,22 @@ Purpose: use Android/OEM NFC-A tag emulation when the extension API exists.
   The service resets routing/NDEF-NFCEE to its defaults; exact restoration evidence
   covers standard NCI parameters, not the full proprietary controller state.
   Startup only changes ST state when this app has a pending snapshot. A pending raw
-  operation must be restored before switching to ST. Raw remains an explicit override
-  with the existing firmware consent; its toggle is unavailable during an ST session.
+  operation must be restored before switching to ST. The Raw mode toggle is
+  unavailable during an ST session or pending restore. ST adds no extra consent
+  dialog; generic uncatalogued raw fallback retains its firmware-scoped consent.
+  A confirmed generic fallback skips repeating the prior ST attempt.
   MotorolaStNfcController.tryFirst stops the chain after verified ST success, or permits
   fallback after failure before writes / verified rollback with no pending snapshot.
   Deactivation failure or unknown controller state blocks fallback. OemNfcController
   next tries the Android OEM API; only its absence raises MotorolaFallbackException
   so PhoneNfcBackend can apply the existing catalog/firmware-consent raw policy.
   OemOperationReport.stAttempt preserves the preceding ST failure and rollback.
+  The ordinary raw path calls PhoneNfcBackend.motorolaRawChange directly, retains
+  its ST report separately from any subsequent raw report, and stops after ST success.
   `MotorolaStNfcControllerTest` covers scoping, persistence ordering, silent failure,
   card switching, rollback failure/retry and firmware changes. Hardware is unverified.
-  Disabled status, evidence and patch inventory: docs/features/motorola-auto/README.md.
+  Current raw scope and limits: docs/features/motorola-auto/raw-mode-15-17.txt;
+  earlier disabled status and patch inventory: docs/features/motorola-auto/README.md.
   On the targeted Motorola, pending experimental raw restoration first uses GET-only
   readback: an exact match to all six saved parameters clears the pending state
   without another SET. Missing/different values keep the existing restoration flow;

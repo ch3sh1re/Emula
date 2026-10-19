@@ -1048,7 +1048,8 @@ public final class MainActivity extends Activity {
         boolean modernApi = OemNfcController.isUidEmulationSupported(this);
         boolean rawAvailable = LegacyNfcController.isExperimentalAvailable(this)
                 || XiaomiNfcController.isTargetDevice() || XiaomiNfcController.hasPendingRestore(this);
-        if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.hasPendingRestore(this)) {
+        if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget()
+                || MotorolaStNfcController.hasPendingRestore(this)) {
             rawAvailable = LegacyNfcDiagnostics.isRawNciApiAvailable(this);
         }
         if (rawAvailable) {
@@ -1059,7 +1060,8 @@ public final class MainActivity extends Activity {
             rawMode.setChecked(rawOnly || isRawModeForced());
             rawMode.setEnabled(!rawOnly);
             if (MotorolaStNfcController.hasPendingRestore(this)
-                    || (MotorolaStNfcController.isTargetDevice() && CardSession.getActiveCardId() != null)
+                    || ((MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget())
+                        && CardSession.getActiveCardId() != null)
                     || XiaomiNfcController.hasPendingRestore(this)
                     || (XiaomiNfcController.isTargetDevice() && CardSession.getActiveCardId() != null)) {
                 rawMode.setEnabled(false);
@@ -1081,7 +1083,8 @@ public final class MainActivity extends Activity {
             if (item.getItemId() == MENU_RAW_MODE) {
                 if (isRawModeForced()) {
                     setRawModeForced(false);
-                } else if (XiaomiNfcController.isTargetDevice()) {
+                } else if (XiaomiNfcController.isTargetDevice()
+                        || MotorolaStNfcController.isRawModeTarget()) {
                     setRawModeForced(true);
                 } else {
                     confirmRawModeEnable();
@@ -1287,6 +1290,8 @@ public final class MainActivity extends Activity {
                 .append(oemCapabilities.format(false))
                 .append('\n').append(XiaomiNfcController.capabilities(this, false))
                 .append('\n')
+                .append(MotorolaStNfcController.rawModeStatus(this, false))
+                .append('\n')
                 .append("Raw NCI API: ").append(rawApi ? "available" : "unavailable")
                 .append('\n')
                 .append("Permission: ").append(permission ? "granted" : "not granted")
@@ -1328,6 +1333,8 @@ public final class MainActivity extends Activity {
                 .append("\n\nCAPABILITIES\n")
                 .append(oemCapabilities.format(true))
                 .append('\n').append(XiaomiNfcController.capabilities(this, false))
+                .append('\n')
+                .append(MotorolaStNfcController.rawModeStatus(this, true))
                 .append('\n')
                 .append("Raw NCI API: ").append(rawApi ? "available" : "unavailable")
                 .append('\n')

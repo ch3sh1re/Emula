@@ -43,10 +43,13 @@ Opening the app preserves the current background session.
 [Quick actions](docs/features/quick-access/README.md) ·
 [Background control](docs/features/background-control/README.md).
 
-Experimental ST emulation on Motorola is disabled in regular builds pending
-reliable controller identification and verification with a physical NFC reader.
-Snapshots from the earlier experimental build can still be restored.
-[Status and conditions for enabling the experiment](docs/features/motorola-auto/README.md).
+On the Moto G Stylus 5G (2024), `boston`, running Android 15–17, Raw mode first tries
+the experimental ST vendor method. The app selects Raw mode automatically when the regular
+OEM API is absent. With the OEM API available, the ST path requires explicitly choosing Raw mode.
+Emula saves the original configuration and checks it during restoration. Direct raw NCI
+is a fallback after a failure before the first write or after a verified rollback.
+External-reader emulation and normal NFC operation after stopping still need to be checked
+on this model. [Scope and verification](docs/features/motorola-auto/raw-mode-15-17.txt).
 
 In the editor, the `4 / 7 / 10 bytes` selector comes before the UID fields. The bytes
 appear in numbered cells of equal size. Four bytes fit in one row, seven in rows of 4+3,
