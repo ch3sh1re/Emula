@@ -462,3 +462,5 @@ Purpose: inspect raw-NCI availability and configuration without changing it.
   searchable Quick Settings chooser and CSV save/share chooser. Capture checks
   demo fixtures and UI states, saves raw PNG/XML, and produces eight RGB PNGs,
   preview, ZIP, metadata and checksums without activating NFC.
+  A frame refreshed from a different build records its exact source, variant,
+  APK hash and AVD in `capture.json` under that screen's `sourceOverride`.
