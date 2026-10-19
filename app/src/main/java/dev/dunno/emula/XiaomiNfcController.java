@@ -8,17 +8,17 @@ import android.os.Build;
 import android.provider.Settings;
 
 import java.lang.reflect.Method;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** Explicit, firmware-scoped trial of the NXP transit-config API. Phone only. */
+/** Model-scoped access to the NXP transit-config API. Phone only. */
 @SuppressLint("PrivateApi")
 final class XiaomiNfcController {
-    static final String TARGET_FINGERPRINT =
+    static final String KNOWN_BASELINE_FINGERPRINT =
             "Redmi/garnet_global/garnet:15/AQ3A.240912.001/OS2.0.206.0.VNRMIXM:user/release-keys";
     private static final String PREFS = "xiaomi_nxp_transit";
     private static final int RESTORE_VERSION = 1;
@@ -29,28 +29,18 @@ final class XiaomiNfcController {
 
     static boolean isTargetDevice() {
         return isTargetDevice(Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL,
-                Build.DEVICE, Build.PRODUCT, Build.FINGERPRINT);
+                Build.DEVICE, Build.PRODUCT);
     }
 
     static boolean isTargetDevice(int sdk, String manufacturer, String model,
-            String device, String product, String fingerprint) {
-        return sdk == 35 && "Xiaomi".equalsIgnoreCase(manufacturer)
+            String device, String product) {
+        return sdk >= 35 && "Xiaomi".equalsIgnoreCase(manufacturer)
                 && "2312DRA50G".equals(model) && "garnet".equals(device)
-                && "garnet_global".equals(product) && TARGET_FINGERPRINT.equals(fingerprint);
+                && "garnet_global".equals(product);
     }
 
     static boolean hasPendingRestore(Context context) {
         return preferences(context).getBoolean("pending", false);
-    }
-
-    static boolean consentAccepted(Context context) {
-        return Build.FINGERPRINT.equals(preferences(context).getString("accepted_firmware", null));
-    }
-
-    static void rememberConsent(Context context) {
-        if (!preferences(context).edit().putString("accepted_firmware", Build.FINGERPRINT).commit()) {
-            throw new IllegalStateException("Could not save Xiaomi NFC approval");
-        }
     }
 
     /** No setters. Read chip identity and firmware through the actual vendor services. */
@@ -58,14 +48,15 @@ final class XiaomiNfcController {
         if (!isTargetDevice() && !hasPendingRestore(context)) return "Xiaomi NXP trial: not targeted";
         StringBuilder text = new StringBuilder("Xiaomi NXP trial: ")
                 .append(isTargetDevice() ? "targeted (experimental)" : "firmware changed")
-                .append("\nXiaomi reset pending: ").append(hasPendingRestore(context) ? "yes" : "no")
-                .append("\nXiaomi trial approved: ").append(consentAccepted(context) ? "yes" : "no");
+                .append("\nXiaomi reset pending: ").append(hasPendingRestore(context) ? "yes" : "no");
         if (!includeProbe) return text.toString();
         try {
             Api api = resolveApi(context);
             text.append("\nXiaomi chip ID: ").append(api.chipId)
                     .append("\nNXP firmware bytes: ").append(api.firmware)
                     .append("\nNXP setConfig: resolved");
+            api.configuration(new byte[UidCodec.DEFAULT_UID_LENGTH]); // Validate only; never sent.
+            text.append("\nXiaomi base configuration: ").append(api.configurationSource());
         } catch (Throwable error) {
             text.append("\nXiaomi probe: ").append(describe(error));
         }
@@ -79,8 +70,8 @@ final class XiaomiNfcController {
         OemNfcController.recordOperation(report);
         Store store = store(context);
         try {
-            report.stage = "CHECK_FIRMWARE";
-            if (!isTargetDevice()) throw new IllegalStateException("Xiaomi NFC trial is not enabled for this firmware");
+            report.stage = "CHECK_DEVICE";
+            if (!isTargetDevice()) throw new IllegalStateException("Xiaomi NFC path is not enabled for this device");
             // Startup without our pending marker must never delete another app's override.
             if (uid == null && store.load() == null) {
                 report.result = "NO_PENDING_XIAOMI_RESET";
@@ -100,6 +91,8 @@ final class XiaomiNfcController {
     }
 
     interface ConfigApi {
+        String configuration(byte[] uid) throws Exception;
+        default String configurationSource() { return "not reported"; }
         int setConfig(String value) throws Exception;
         boolean nfcReady() throws Exception;
     }
@@ -114,7 +107,7 @@ final class XiaomiNfcController {
     static void transact(ConfigApi api, Store store, String fingerprint, byte[] uid,
             OemOperationReport report) throws Exception {
         report.path = OemOperationReport.Path.XIAOMI_NXP_TRANSIT;
-        report.profile = "garnet-206 / NXP transit config (experimental)";
+        report.profile = "garnet / NXP transit config (experimental)";
         report.notes.add("Factory reset replaces prior transit overrides; no original-file snapshot is available.");
         report.notes.add("A vendor acknowledgement does not verify RF UID, file deletion, payment, or transit cards.");
         String pending = store.load();
@@ -130,7 +123,9 @@ final class XiaomiNfcController {
             reset(api, store, report);
             return;
         }
-        String config = configuration(uid); // Validate before persisting or invoking any setter.
+        report.stage = "READ_FIRMWARE_CORE_CONFIG";
+        String config = api.configuration(uid); // Validate before persisting or invoking any setter.
+        report.notes.add("Baseline configuration: " + api.configurationSource());
         report.uid = OemOperationReport.copy(uid);
         report.stage = "SAVE_PENDING_XIAOMI_RESET";
         store.save(fingerprint); // Durable before either the service or HAL can write a file.
@@ -181,29 +176,6 @@ final class XiaomiNfcController {
         if (!api.nfcReady()) throw new IllegalStateException("NFC did not become ready after NXP setConfig");
     }
 
-    /** Preserve the 206 firmware's CORE_CONF parameters, changing only NFCID1 and config control. */
-    static String configuration(byte[] uid) {
-        if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
-            throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
-        }
-        Map<Integer, byte[]> values = new LinkedHashMap<>();
-        // Disable automatic RF parameter updates before installing the explicit NFCID1.
-        values.put(0x85, new byte[] {0});
-        int[][] defaults = {{0x28, 0}, {0x21, 0}, {0x30, 4}, {0x31, 0}, {0x32, 0x60},
-                {0x38, 1}, {0x54, 6}, {0x50, 2}, {0x5B, 0}, {0x3E, 0}, {0x80, 1},
-                {0x81, 1}, {0x82, 0x0E}, {0x18, 1}, {0x68, 1}};
-        for (int[] pair : defaults) values.put(pair[0], new byte[] {(byte) pair[1]});
-        values.put(0x33, uid.clone());
-        int[] ids = values.keySet().stream().mapToInt(Integer::intValue).toArray();
-        byte[] payload = RawNciCodec.configPayload(values, ids);
-        byte[] command = new byte[payload.length + 3];
-        command[0] = 0x20;
-        command[1] = 0x02;
-        command[2] = (byte) payload.length;
-        System.arraycopy(payload, 0, command, 3, payload.length);
-        return "NXP_CORE_CONF={" + RawNciCodec.hex(command).replace(" ", ",") + "}\n";
-    }
-
     /** A hung Binder call cannot be interrupted safely. Keep it single-flight after timeout. */
     static final class VendorCallGate {
         private FutureTask<Integer> inFlight;
@@ -250,7 +222,7 @@ final class XiaomiNfcController {
     }
 
     private static Api resolveApiUnchecked(Context context) throws Exception {
-        if (!isTargetDevice()) throw new IllegalStateException("Unsupported Xiaomi firmware");
+        if (!isTargetDevice()) throw new IllegalStateException("Unsupported Xiaomi device");
         ClassLoader loader = context.getClassLoader();
         Class<?> miClass = Class.forName("com.xiaomi.nfc.MiNfcAdapter", false, loader);
         Object mi = miClass.getConstructor(Context.class).newInstance(context);
@@ -314,6 +286,7 @@ final class XiaomiNfcController {
         final String firmware;
         final WriteLedger ledger;
         final int boot;
+        String configSource;
 
         Api(Object receiver, Method setter, Method firmwareGetter, NfcAdapter adapter,
                 Context context, String chipId, String firmware) {
@@ -336,6 +309,23 @@ final class XiaomiNfcController {
                 }
             };
         }
+
+        @Override public String configuration(byte[] uid) throws IOException {
+            String baseline;
+            try (FileInputStream input = new FileInputStream("/vendor/etc/libnfc-nxp.conf")) {
+                baseline = XiaomiNxpConfig.read(input);
+                configSource = "/vendor/etc/libnfc-nxp.conf (current firmware)";
+            } catch (IOException unavailable) {
+                if (!KNOWN_BASELINE_FINGERPRINT.equals(Build.FINGERPRINT)) {
+                    throw new IOException("Cannot read this firmware's NFC configuration; no setter was invoked", unavailable);
+                }
+                baseline = XiaomiNxpConfig.CORE_CONF_206;
+                configSource = "preserved Global 206 baseline (exact firmware match)";
+            }
+            return XiaomiNxpConfig.configuration(baseline, uid);
+        }
+
+        @Override public String configurationSource() { return configSource; }
 
         @Override public int setConfig(String value) throws Exception {
             return CALLS.call(() -> {

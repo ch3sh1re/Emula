@@ -55,8 +55,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     private boolean useXiaomi() {
         return XiaomiNfcController.hasPendingRestore(context)
                 || (XiaomiNfcController.isTargetDevice()
-                        && !settings.getBoolean("force_raw_mode", false)
-                        && !OemNfcController.isUidEmulationSupported(context));
+                        && (settings.getBoolean("force_raw_mode", false)
+                            || !OemNfcController.isUidEmulationSupported(context)));
     }
 
     @Override public PhoneNfcSession.Reason preflight(SavedCard card) {
@@ -64,8 +64,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
         if (!permission()) return PhoneNfcSession.Reason.PERMISSION;
         if (card == null && recoveryPending()) return null;
-        if (useXiaomi()) return card != null && !XiaomiNfcController.consentAccepted(context)
-                ? PhoneNfcSession.Reason.XIAOMI_CONSENT : null;
+        if (useXiaomi()) return null;
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) return PhoneNfcSession.Reason.UNSUPPORTED;
         if (path == NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW) return PhoneNfcSession.Reason.CONSENT;
@@ -93,7 +92,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
         if (XiaomiNfcController.hasPendingRestore(context)) {
             requireReady();
-            xiaomiChange(null, OemOperationReport.Operation.STARTUP_RESTORE, false);
+            xiaomiChange(null, OemOperationReport.Operation.STARTUP_RESTORE);
             return true;
         }
         if (useXiaomi()) {
@@ -138,7 +137,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
         if (useXiaomi()) {
             xiaomiChange(card, card == null ? OemOperationReport.Operation.DEACTIVATE
-                    : OemOperationReport.Operation.ACTIVATE, confirmed);
+                    : OemOperationReport.Operation.ACTIVATE);
             return;
         }
         NfcActivationPolicy.Path path = path(card != null);
@@ -194,13 +193,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
     }
 
-    private void xiaomiChange(SavedCard card, OemOperationReport.Operation operation,
-            boolean confirmed) throws Exception {
-        if (card != null && !confirmed && !XiaomiNfcController.consentAccepted(context)) {
-            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.XIAOMI_CONSENT);
-        }
+    private void xiaomiChange(SavedCard card, OemOperationReport.Operation operation) throws Exception {
         try {
-            if (card != null && confirmed) XiaomiNfcController.rememberConsent(context);
             XiaomiNfcController.change(context, card == null ? null : card.uid, operation);
             CardSession.setActiveCardId(card == null ? null : card.id);
         } catch (Throwable error) {

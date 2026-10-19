@@ -280,9 +280,11 @@ read-only check. When the check is available, **Copy** and **Email** are enabled
 attempt finishes, including on failure. On the targeted Xiaomi firmware, the report also includes
 the result from the NFC identification services.
 
-Xiaomi 2312DRA50G / garnet on Global OS2.0.206.0.VNRMIXM has a separate
-experimental NXP path. It requires approval for the particular firmware and verifies
-the availability of the services. Stopping requests the firmware defaults and replaces
+Xiaomi 2312DRA50G / garnet_global running Android 15 or later has a separate NXP path.
+It is selected when the standard OEM API is missing or when you choose Raw mode.
+There is no additional consent dialog. Before a write, the app checks the services and base NFC configuration
+of the installed firmware. It uses the saved 2.0.206 parameters only for an exact match
+to that firmware. Stopping requests the firmware defaults and replaces
 any previous user override of NFC or transit settings.
 Reader behavior and payments after reset have yet to be confirmed on a device.
 [Xiaomi trial details and verification](docs/features/xiaomi-garnet/release-trial.txt).

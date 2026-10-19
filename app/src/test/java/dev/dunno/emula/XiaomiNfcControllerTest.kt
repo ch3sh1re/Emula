@@ -6,7 +6,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class XiaomiNfcControllerTest {
-    private val firmware = XiaomiNfcController.TARGET_FINGERPRINT
+    private val firmware = XiaomiNfcController.KNOWN_BASELINE_FINGERPRINT
     private val uid = byteArrayOf(4, 0x12, 0x34, 0x56)
 
     private class Store : XiaomiNfcController.Store {
@@ -31,6 +31,8 @@ class XiaomiNfcControllerTest {
         var failActivation = false
         var failReset = false
         var ready = true
+        var baseline = XiaomiNxpConfig.CORE_CONF_206
+        override fun configuration(uid: ByteArray): String = XiaomiNxpConfig.configuration(baseline, uid)
         override fun setConfig(value: String?): Int {
             assertNotNull("Recovery must be durable before every service write", store.pending)
             calls += value
@@ -44,20 +46,21 @@ class XiaomiNfcControllerTest {
     private fun change(api: Api, store: Store, uid: ByteArray?, report: OemOperationReport = report()) =
         XiaomiNfcController.transact(api, store, firmware, uid, report)
 
-    @Test fun targetRequiresTheExactModelProductAndFirmware() {
+    @Test fun targetUsesExactModelAndProductAcrossSupportedAndroidVersions() {
         fun target(sdk: Int = 35, manufacturer: String? = "Xiaomi", model: String? = "2312DRA50G",
-                   device: String? = "garnet", product: String? = "garnet_global", build: String? = firmware) =
-            XiaomiNfcController.isTargetDevice(sdk, manufacturer, model, device, product, build)
+                   device: String? = "garnet", product: String? = "garnet_global") =
+            XiaomiNfcController.isTargetDevice(sdk, manufacturer, model, device, product)
         assertTrue(target())
         assertTrue(target(manufacturer = "xiaomi"))
-        assertFalse(target(sdk = 36))
+        assertTrue(target(sdk = 36))
+        assertTrue(target(sdk = 37))
+        assertTrue(target(sdk = 38))
+        assertFalse(target(sdk = 34))
         assertFalse(target(model = "23122PCD1G")) // POCO uses a different SKU.
         assertFalse(target(manufacturer = "Samsung"))
         assertFalse(target(product = "garnet"))
         assertFalse(target(device = "other"))
-        assertFalse(target(build = firmware.replace("206", "205")))
-        assertFalse(target(build = firmware + ".modified"))
-        assertFalse(target(manufacturer = null, model = null, device = null, product = null, build = null))
+        assertFalse(target(manufacturer = null, model = null, device = null, product = null))
     }
 
     @Test fun firmwareProbeRejectsNoResponseAndStubValues() {
@@ -74,7 +77,7 @@ class XiaomiNfcControllerTest {
             0x81 to 1, 0x82 to 0x0E, 0x18 to 1, 0x68 to 1)
         for (size in listOf(4, 7, 10)) {
             val input = ByteArray(size) { (it * 17).toByte() }
-            val config = XiaomiNfcController.configuration(input)
+            val config = XiaomiNxpConfig.configuration(XiaomiNxpConfig.CORE_CONF_206, input)
             assertTrue(config.endsWith("}\n"))
             val bytes = config.substringAfter('{').substringBefore('}').split(',')
                 .map { it.toInt(16) }
@@ -101,6 +104,14 @@ class XiaomiNfcControllerTest {
         val store = Store()
         val api = Api(store)
         assertThrows(IllegalArgumentException::class.java) { change(api, store, byteArrayOf(1)) }
+        assertNull(store.pending)
+        assertTrue(api.calls.isEmpty())
+    }
+
+    @Test fun unreadableOrInvalidFirmwareConfigurationPreventsPersistenceAndAnySetter() {
+        val store = Store()
+        val api = Api(store).apply { baseline = "not a valid NFC configuration" }
+        assertThrows(IllegalArgumentException::class.java) { change(api, store, uid) }
         assertNull(store.pending)
         assertTrue(api.calls.isEmpty())
     }
