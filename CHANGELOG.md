@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.0.13 (33)
+
+- Present CSV save/share choices as equal flat rows with leading icons and touch
+  feedback, removing the almost identical button/dialog fills and native shadows.
+  Preserve accessible button semantics, 56 dp minimum targets, scalable text and
+  the fixed Cancel action.
+- Include the NFC compatibility, foreground polling, recovery and diagnostics
+  changes from the 1.0.12 preparation. Existing 1.0.12 artifacts are retained.
+
 ## 1.0.12 (32)
 
 - Transparently select a Xiaomi NXP compatibility path for Redmi 2312DRA50G /
