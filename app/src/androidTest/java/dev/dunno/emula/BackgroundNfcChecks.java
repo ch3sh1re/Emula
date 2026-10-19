@@ -197,7 +197,7 @@ final class BackgroundNfcChecks {
             check(notification(context, 201) != null, "Failed restoration must keep foreground control available");
 
             int beforeOff = backend.writes;
-            test.runOnMainSync(PhoneNfcRuntime::adapterOff);
+            test.runOnMainSync(() -> PhoneNfcRuntime.adapterOff(false));
             await(test, () -> !runtime.isBusy() && backend.active == null, "Adapter invalidation");
             check(backend.pending && backend.writes == beforeOff, "Adapter-off broadcast must retain snapshots without writes");
             backend.fail = false;
