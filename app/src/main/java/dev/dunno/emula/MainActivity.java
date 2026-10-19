@@ -16,6 +16,7 @@ import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -777,21 +778,29 @@ public final class MainActivity extends Activity {
         LinearLayout panel = choiceDialogPanel(R.string.csv_export_title);
         LinearLayout options = choiceDialogList(panel);
         int[] labels = {R.string.csv_save_file, R.string.csv_share_file};
+        int[] icons = {R.drawable.ic_save_alt_24, R.drawable.ic_share_24};
         for (int i = 0; i < labels.length; i++) {
             boolean share = i == 1;
             Button action = dialogAction(labels[i]);
             action.setTextColor(Color.WHITE);
             action.setTextSize(16);
             action.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            action.setPadding(dp(18), dp(12), dp(18), dp(12));
+            action.setPadding(dp(12), dp(12), dp(12), dp(12));
             action.setMinHeight(dp(56));
             action.setMinimumHeight(dp(56));
+            // These are equal choices on the dialog surface, without native button shadows/tint.
+            action.setStateListAnimator(null);
+            action.setElevation(0);
+            action.setBackgroundTintList(null);
             action.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)),
-                    rounded(SURFACE, 14), null));
+                    null, rounded(Color.WHITE, 12)));
+            Drawable icon = getDrawable(icons[i]);
+            icon.setTint(ACCENT);
+            action.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null);
+            action.setCompoundDrawablePadding(dp(16));
             action.setOnClickListener(v -> { dialog.dismiss(); selected.accept(share); });
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (i > 0) params.topMargin = dp(10);
             options.addView(action, params);
         }
         addChoiceCancel(panel, dialog::dismiss);

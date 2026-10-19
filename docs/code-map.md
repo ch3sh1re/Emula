@@ -136,7 +136,9 @@ Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active
   Pending URIs survive recreation; CSV contents are never stored in a Bundle.
   Host.chooseExport delegates the export action menu to MainActivity.showCsvExportChooser;
   it shares choiceDialogPanel/List, addChoiceCancel and showChoiceDialog with the
-  tile card chooser. CardTransfer owns and dismisses the menu on disposal.
+  tile card chooser. Export choices are flat, equally weighted 56 dp minimum rows
+  with leading icons and ripple feedback; native button tint and elevation are disabled.
+  CardTransfer owns and dismisses the menu on disposal.
 - CardReadCancellation coordinates Future interruption, stream ownership and
   asynchronous close/provider cancellation. CardTransfer uses CancellationSignal
   when opening an asset; cancel, replacement and dispose invalidate the request
