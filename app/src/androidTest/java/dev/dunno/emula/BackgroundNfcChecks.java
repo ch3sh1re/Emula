@@ -94,6 +94,13 @@ final class BackgroundNfcChecks {
             await(test, () -> !runtime.isBusy(), "Opening MainActivity during a background session");
             check(backend.restores == 1 && first.id.equals(backend.active),
                     "Opening the real MainActivity must retain background activation");
+            AtomicReference<Activity> pollingActivity = new AtomicReference<>();
+            job(test, runtime, false, state -> {
+                pollingActivity.set(runtime.pollingUi.acquire(2_000));
+                return null;
+            }, false);
+            check(pollingActivity.get() == main,
+                    "The application-owned worker must acquire the resumed Activity for discovery control");
             int beforeSearch = backend.writes;
             test.runOnMainSync(() -> {
                 View root = main.getWindow().getDecorView();
@@ -117,6 +124,10 @@ final class BackgroundNfcChecks {
             job(test, runtime, true, state -> { state.toggle(first.id); return null; }, false);
             await(test, () -> first.id.equals(backend.active) && !runtime.isBusy(), "Restore fake active session after search check");
             test.runOnMainSync(main::finish);
+            await(test, () -> runtime.pollingUi.attached() == null,
+                    "Destroyed Activity must detach from polling context");
+            check(runtime.pollingUi.acquire(0) == null,
+                    "Background work must not reuse a destroyed Activity");
             await(test, main::isDestroyed, "Closing MainActivity");
 
             StatusBarNotification activeNotification = notification(context, 201);

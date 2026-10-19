@@ -262,6 +262,7 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        nfc.resumeUi(this);
         refreshPermissionUi();
         resumeEditorReaderIfReady();
         showPermissionRequestIfNeeded();
@@ -273,6 +274,7 @@ public final class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (nfc != null) nfc.focusUi(this, hasFocus);
         if (hasFocus && quickActions != null) {
             quickActions.onReady();
             requestNotificationPermissionIfNeeded();
@@ -281,6 +283,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        nfc.pauseUi(this);
         quickActions.pause();
         cardTransfer.onPause();
         if (isChangingConfigurations() && readerMode && readerForEditor) {
@@ -1292,8 +1295,7 @@ public final class MainActivity extends Activity {
                 .append(RawNfcDeviceCatalog.profileDescription(
                         Build.MANUFACTURER, Build.MODEL))
                 .append('\n')
-                .append("Polling method: ")
-                .append(rawApi ? LegacyNfcController.pollingMethod(this) : "UNAVAILABLE")
+                .append(nfc.pollingCapabilities(rawApi))
                 .append("\n\n")
                 .append(OemNfcController.lastOperationForDisplay())
                 .append("\n\n")
@@ -1335,8 +1337,7 @@ public final class MainActivity extends Activity {
                 .append(RawNfcDeviceCatalog.profileDescription(
                         Build.MANUFACTURER, Build.MODEL))
                 .append('\n')
-                .append("Polling method: ")
-                .append(rawApi ? LegacyNfcController.pollingMethod(this) : "UNAVAILABLE")
+                .append(nfc.pollingCapabilities(rawApi))
                 .append("\n\n")
                 .append(OemNfcController.lastOperationDetailed())
                 .append("\n\n")

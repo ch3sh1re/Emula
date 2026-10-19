@@ -56,6 +56,7 @@
     <string name="experimental_raw_dialog_title">Try experimental raw mode?</string>
     <string name="experimental_raw_dialog_message">Controller compatibility has not been verified for %1$s %2$s running Android %3$s (API %4$d).\n\nEmula will first read and retain the current NFC configuration, then try the compatibility profile. If activation fails, it will restore the captured values. A successful choice is remembered only for this firmware build.</string>
     <string name="experimental_raw_try">Try raw mode</string>
+    <string name="raw_foreground_required">Open Emula to change NFC on this device</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_enable">Enable</string>
     <string name="action_close">Close</string>
