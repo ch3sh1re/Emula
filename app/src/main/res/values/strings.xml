@@ -34,11 +34,13 @@
     <string name="csv_share_file">Share CSV file</string>
     <string name="csv_import_title">Import cards</string>
     <string name="csv_reading">Reading CSV…</string>
-    <string name="csv_import_empty_message">Cards in file: %1$d.\n\nImport this file?</string>
-    <string name="csv_import_message">Cards in file: %1$d. Saved in Emula: %2$d.\n\nAdd keeps your existing cards and skips matching UIDs. Replace all removes the existing list and imports this file.</string>
+    <string name="csv_import_empty_message">Cards to import: %1$d</string>
+    <string name="csv_import_message">In this file: %1$d\nSaved in Emula: %2$d</string>
     <string name="csv_import_action">Import</string>
-    <string name="csv_add_action">Add</string>
-    <string name="csv_replace_action">Replace all</string>
+    <string name="csv_add_action">Add cards</string>
+    <string name="csv_add_description">Keep saved cards. Skip matching UIDs.</string>
+    <string name="csv_replace_action">Replace list</string>
+    <string name="csv_replace_description">Remove saved cards and import this file.</string>
     <string name="csv_imported">Imported: %1$d. Skipped matching UIDs: %2$d.</string>
     <string name="csv_disable_before_replace">Deactivating card before replacing the list…</string>
     <string name="csv_error_title">CSV file</string>
@@ -158,6 +160,7 @@
     <string name="quick_add_tile">Add Quick Settings tile</string>
     <string name="quick_tile_card">Card for Quick Settings</string>
     <string name="quick_tile_card_saved">Quick Settings card selected</string>
+    <string name="quick_tile_card_selected">Selected for Quick Settings</string>
     <string name="quick_use_for_tile">Use in Quick Settings</string>
     <string name="quick_tile_added">Emula is in Quick Settings</string>
     <string name="quick_tile_add_help">Open Quick Settings, tap Edit and add the Emula tile.</string>

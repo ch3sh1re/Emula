@@ -1,7 +1,6 @@
 package dev.dunno.emula;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -40,7 +39,7 @@ final class CardTransfer {
     private Uri importUri;
     private Uri exportUri;
     private List<CardCsv.Entry> incoming;
-    private AlertDialog importDialog;
+    private Dialog importDialog;
     private Dialog exportDialog;
     private boolean resumed;
     private boolean disposed;
@@ -174,7 +173,7 @@ final class CardTransfer {
         CancellationSignal signal = new CancellationSignal();
         CardReadCancellation request = new CardReadCancellation(cleanup, signal::cancel);
         importRead = request;
-        importDialog = new AlertDialog.Builder(activity)
+        importDialog = new AppDialogs.Builder(activity)
                 .setTitle(R.string.csv_import_title)
                 .setMessage(R.string.csv_reading)
                 .setNegativeButton(R.string.action_cancel, (dialog, which) -> clearImport())
@@ -221,28 +220,21 @@ final class CardTransfer {
 
     private void confirmImport() {
         int existing = CardStore.getCards(activity).size();
-        StringBuilder preview = new StringBuilder(activity.getString(
-                existing == 0 ? R.string.csv_import_empty_message : R.string.csv_import_message,
-                incoming.size(), existing));
-        preview.append("\n\n");
-        for (int i = 0; i < Math.min(incoming.size(), 3); i++) {
-            String name = incoming.get(i).name.replace('\r', ' ').replace('\n', ' ');
-            preview.append(name.length() > 60 ? name.substring(0, 60) + "…" : name).append('\n');
-        }
-        if (incoming.size() > 3) preview.append("…");
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity)
+        AppDialogs.Builder builder = new AppDialogs.Builder(activity)
                 .setTitle(R.string.csv_import_title)
-                .setMessage(preview.toString().trim())
+                .setMessage(activity.getString(existing == 0
+                        ? R.string.csv_import_empty_message : R.string.csv_import_message,
+                        incoming.size(), existing))
                 .setNegativeButton(R.string.action_cancel, (dialog, which) -> clearImport())
                 .setOnCancelListener(dialog -> clearImport());
         if (existing == 0) {
             builder.setPositiveButton(R.string.csv_import_action,
                     (dialog, which) -> approve(true));
         } else {
-            builder.setPositiveButton(R.string.csv_add_action,
-                    (dialog, which) -> approve(false));
-            builder.setNeutralButton(R.string.csv_replace_action,
-                    (dialog, which) -> approve(true));
+            builder.addChoice(R.string.csv_add_action, R.string.csv_add_description, false,
+                    () -> approve(false));
+            builder.addChoice(R.string.csv_replace_action, R.string.csv_replace_description, true,
+                    () -> approve(true));
         }
         importDialog = builder.show();
     }
@@ -320,7 +312,7 @@ final class CardTransfer {
 
     private void error(String message) {
         if (disposed || activity.isFinishing() || activity.isDestroyed()) return;
-        new AlertDialog.Builder(activity)
+        new AppDialogs.Builder(activity)
                 .setTitle(R.string.csv_error_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.action_close, null)

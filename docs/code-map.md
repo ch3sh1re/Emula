@@ -37,10 +37,12 @@ status/errors.
   retaining original color indices, IDs and input focus. An excluded active card
   keeps a visible summary and stop action. Main query/open state survives recreation;
   the platform back callback closes search after IME handling.
-- Header add/search/menu buttons share iconAction, 48 dp cells, 24 dp icons and
+- Header and card overflow buttons share iconAction, 48 dp cells, 24 dp icons, button
+  accessibility semantics and ripple feedback. Header buttons use
   centered drawing with equal spacing; no extra margin precedes the overflow menu.
 - `showCardEditor` places the 4/7/10-byte selector before the UID fields.
-  Name and UID labels/control boundaries share the form margins and 8 dp label gaps;
+  Name and UID labels/control boundaries share the form margins and 8 dp label gaps.
+  The Name placeholder uses TEXT_SECONDARY for readable contrast.
   `editorFieldBackground` gives the name field and UID cells the same rounded fill
   and focus outline (actual focus for Name, logical activation for UID bytes).
   Ten numbered byte cells are created once; `setEditorUidLength` changes visibility
@@ -102,6 +104,13 @@ status/errors.
   UID-emulation slice.
 - Validate UI changes with `assembleDebug`/`lintDebug` and a focused device check.
 
+- `AppDialogs` owns the shared phone confirmation/choice surfaces, text actions,
+  destructive-action color and bounded scrollable body. Action labels stack when
+  horizontal space is insufficient; Cancel remains outside the scrollable content.
+  MainActivity and CardTransfer reuse its Builder for errors, deletion, permission,
+  email/raw confirmations, import progress and import approval. Dialog cancel/dismiss
+  callbacks keep the existing transfer and permission lifecycle behavior.
+
 ## 2. Card storage and session state
 
 Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active card.
@@ -131,7 +140,8 @@ Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active
   CSV classes are phone-only and are excluded from syncWatchSources. Append preserves
   existing records and skips matching UIDs; replace preserves every input row.
 - CardTransfer reads/writes documents off the main thread, always asks approval,
-  and offers append/replace only for a nonempty catalog. MainActivity.importCsvCards
+  and offers append/replace only for a nonempty catalog. Import confirmation shows
+  counts and two short, explained choices, without card-name previews. MainActivity.importCsvCards
   deactivates an active card before committing a replacement; append leaves it active.
   Pending URIs survive recreation; CSV contents are never stored in a Bundle.
   Host.chooseExport delegates the export action menu to MainActivity.showCsvExportChooser;
@@ -184,7 +194,8 @@ Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active
   fitSearchDialogToKeyboard caps the floating window above the IME and moves Cancel
   beside the input when height is limited; the input is never detached or recreated.
   Selection callbacks still resolve the current record ID before remembering it.
-  showCardMenu also exposes a checked Use in Quick Settings action that resolves
+  showCardMenu exposes Use in Quick Settings, or a disabled Selected for Quick Settings
+  label for the current target; Delete is a separate final group. Selection resolves
   the current record and remembers its ID without activating NFC.
 - QuickCardPolicy owns pure ID lookup, tile target priority and toggle identity.
   QuickCardPolicyTest covers duplicate names/UIDs, edits, deletion, replacement and
