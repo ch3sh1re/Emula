@@ -60,7 +60,8 @@
     <string name="action_enable">Enable</string>
     <string name="action_close">Close</string>
     <string name="action_save">Save</string>
-    <string name="diagnostics_check_raw_nci">Check raw NCI</string>
+    <string name="diagnostics_prepare_report">Prepare report</string>
+    <string name="diagnostics_prepare_report_hint">Prepare the report to include NFC details before copying or emailing it.</string>
     <string name="diagnostics_copy">Copy</string>
     <string name="diagnostics_email">Email</string>
     <string name="diagnostics_email_title">Email diagnostics?</string>

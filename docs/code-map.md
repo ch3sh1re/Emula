@@ -345,8 +345,10 @@ Purpose: inspect raw-NCI availability and configuration without changing it.
   `diagnosticSummary`, `diagnosticDetailedSummary`, and `copyDiagnostics`. Both the
   latest OEM operation and the latest raw operation are included. The dialog uses a
   dedicated report `ScrollView` and a fixed responsive action footer instead of the
-  platform three-button `AlertDialog` bar. Copy and Email are disabled while a probe
-  is pending so they cannot export a stale report.
+  platform three-button `AlertDialog` bar. Prepare report explains the read-only
+  collection step. If probing is possible, Copy and Email stay disabled until an
+  attempt completes, including failure; otherwise the base report can be exported.
+  Repeating preparation disables them again while the probe is pending.
 - `confirmEmailDiagnostics` explains possible UID contents; `openDiagnosticsEmail`
   opens an editable external email draft or offers a copy fallback. No report is sent
   automatically. Reports include the app version and firmware details.
@@ -358,6 +360,11 @@ Purpose: inspect raw-NCI availability and configuration without changing it.
   with write diagnostics; `RawOperationReport` preserves per-request evidence.
 - Contract: the probe reads parameters `0x30`, `0x31`, `0x32`, `0x33`, `0x58`,
   `0x59`, and `0x85`. It must not send SET_CONFIG or mutate NFC state.
+- Xiaomi garnet investigation and preserved firmware evidence are in
+  docs/features/xiaomi-garnet/firmware-analysis.txt. The neighboring Global
+  2.0.205 NXP service exposes stubbed raw-NCI methods; this is not yet established
+  for the reported 2.0.206 service. Its NXP transit setter persists configuration
+  and restarts NFC, so it has not been added as an activation path.
 - Parsing tests are in `RawNciCodecTest.kt`; the reflection/transport path needs
   a physical-device smoke test with `WRITE_SECURE_SETTINGS` granted.
 

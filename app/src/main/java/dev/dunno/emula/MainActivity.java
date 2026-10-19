@@ -1152,9 +1152,10 @@ public final class MainActivity extends Activity {
         boolean canProbe = rawApi && permission && adapter != null && adapter.isEnabled();
         Button probeButton = null;
         if (canProbe) {
+            diagnosticsText.append("\n\n" + getString(R.string.diagnostics_prepare_report_hint));
             probeButton = new Button(this);
             probeButton.setAllCaps(false);
-            probeButton.setText(R.string.diagnostics_check_raw_nci);
+            probeButton.setText(R.string.diagnostics_prepare_report);
             probeButton.setTextColor(Color.WHITE);
             probeButton.setTextSize(15);
             probeButton.setBackground(rounded(Color.rgb(59, 112, 211), 14));
@@ -1192,13 +1193,13 @@ public final class MainActivity extends Activity {
         closeButton.setOnClickListener(v -> dialog.dismiss());
         actions.addView(closeButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        setDiagnosticsExportEnabled(copyButton, emailButton, !canProbe);
 
         if (probeButton != null) {
             Button activeProbeButton = probeButton;
             activeProbeButton.setOnClickListener(v -> {
                 activeProbeButton.setEnabled(false);
-                copyButton.setEnabled(false);
-                emailButton.setEnabled(false);
+                setDiagnosticsExportEnabled(copyButton, emailButton, false);
                 diagnosticsText.setText(initialSummary + "\n\n"
                         + getString(R.string.diagnostics_reading));
                 reportScroll.scrollTo(0, 0);
@@ -1215,8 +1216,7 @@ public final class MainActivity extends Activity {
                     }
                     reportScroll.scrollTo(0, 0);
                     activeProbeButton.setEnabled(true);
-                    copyButton.setEnabled(true);
-                    emailButton.setEnabled(true);
+                    setDiagnosticsExportEnabled(copyButton, emailButton, true);
                 });
             });
         }
@@ -1232,6 +1232,13 @@ public final class MainActivity extends Activity {
             params.dimAmount = 0.68f;
             window.setAttributes(params);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        }
+    }
+
+    private void setDiagnosticsExportEnabled(Button copy, Button email, boolean enabled) {
+        for (Button action : new Button[] {copy, email}) {
+            action.setEnabled(enabled);
+            action.setAlpha(enabled ? 1f : 0.4f);
         }
     }
 
