@@ -275,7 +275,17 @@ You can review the contents before sending. The report includes the Emula versio
 device model, firmware and NFC operation results. It may contain card UIDs. If you lack an email
 app, copy the report and send it through webmail. Include a description of the problem
 and the external reader model. Opening diagnostics or an email draft does not send any
-new NFC commands. **Check raw NCI** is a separate read-only check.
+new NFC commands. **Prepare report** performs a separate
+read-only check. When the check is available, **Copy** and **Email** are enabled when the
+attempt finishes, including on failure. On the targeted Xiaomi firmware, the report also includes
+the result from the NFC identification services.
+
+Xiaomi 2312DRA50G / garnet on Global OS2.0.206.0.VNRMIXM has a separate
+experimental NXP path. It requires approval for the particular firmware and verifies
+the availability of the services. Stopping requests the firmware defaults and replaces
+any previous user override of NFC or transit settings.
+Reader behavior and payments after reset have yet to be confirmed on a device.
+[Xiaomi trial details and verification](docs/features/xiaomi-garnet/release-trial.txt).
 
 ## Signing a release build
 

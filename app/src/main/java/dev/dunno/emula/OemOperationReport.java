@@ -15,7 +15,8 @@ final class OemOperationReport {
     enum Path {
         ANDROID_OEM_EXTENSION,
         ONEPLUS_VENDOR_HCE,
-        MOTOROLA_ST_VENDOR_HCE
+        MOTOROLA_ST_VENDOR_HCE,
+        XIAOMI_NXP_TRANSIT
     }
 
     final Operation operation;
@@ -44,6 +45,11 @@ final class OemOperationReport {
     String failure;
     OemOperationReport stRollback;
     OemOperationReport stAttempt;
+    String chipId;
+    String vendorFirmware;
+    String vendorConfig;
+    Integer vendorStatus;
+    OemOperationReport vendorRollback;
 
     OemOperationReport(Operation operation) {
         this.operation = operation;
@@ -93,6 +99,16 @@ final class OemOperationReport {
             append(text, "External reader", "not verified by this report");
         }
 
+        if (path == Path.XIAOMI_NXP_TRANSIT) {
+            text.append('\n').append("XIAOMI NXP TRANSIT TRIAL\n");
+            append(text, "Chip ID (firmware-reported)", chipId);
+            append(text, "NXP firmware bytes", vendorFirmware);
+            append(text, "Recovery", snapshotState);
+            append(text, "setConfig status", vendorStatus == null ? null : vendorStatus.toString());
+            append(text, "setConfig request", vendorConfig);
+            append(text, "External reader / payment / original override", "not verified by this report");
+        }
+
         if (rollbackAttempted != null || rollbackFailure != null) {
             text.append('\n').append("ROLLBACK\n");
             append(text, "Attempted", outcome(rollbackAttempted));
@@ -113,6 +129,10 @@ final class OemOperationReport {
         if (stAttempt != null) {
             text.append('\n').append("PRECEDING MOTOROLA ST ATTEMPT\n")
                     .append(stAttempt.format(detailed));
+        }
+        if (vendorRollback != null) {
+            text.append('\n').append("VENDOR ROLLBACK EVIDENCE\n")
+                    .append(vendorRollback.format(detailed));
         }
         return text.toString();
     }
