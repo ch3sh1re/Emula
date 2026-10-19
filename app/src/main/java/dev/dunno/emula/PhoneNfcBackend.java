@@ -63,6 +63,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     }
 
     private boolean useMotorolaRaw() {
+        if (OnePlusVendorNfcController.hasPendingRestore(context)) return false;
         boolean pending = MotorolaStNfcController.hasPendingRestore(context);
         boolean targeted = MotorolaStNfcController.isRawModeTarget();
         if (!pending && !targeted) return false;
