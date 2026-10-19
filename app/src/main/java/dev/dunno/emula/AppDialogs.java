@@ -78,7 +78,7 @@ final class AppDialogs {
         button.setMinimumWidth(0);
         button.setMinHeight(dp(activity, 48));
         button.setMinimumHeight(dp(activity, 48));
-        button.setPadding(dp(activity, 14), dp(activity, 8), dp(activity, 14), dp(activity, 8));
+        button.setPadding(dp(activity, 14), 0, dp(activity, 14), 0);
         return button;
     }
 
