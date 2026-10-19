@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Rename the NFC diagnostic check to Prepare report and explain its purpose.
+  When controller details can be collected, enable Copy and Email after the
+  collection attempt completes, including failed checks in the exported report.
+
 ## 1.0.11 (31)
 
 - Align the add/search/menu toolbar buttons and match the Name field styling and
