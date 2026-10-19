@@ -62,6 +62,15 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                             || !OemNfcController.isUidEmulationSupported(context)));
     }
 
+    private boolean useMotorolaRaw() {
+        boolean pending = MotorolaStNfcController.hasPendingRestore(context);
+        boolean targeted = MotorolaStNfcController.isRawModeTarget();
+        if (!pending && !targeted) return false;
+        boolean forced = settings.getBoolean("force_raw_mode", false);
+        return MotorolaStNfcController.useRawMode(targeted, forced,
+                !pending && !forced && OemNfcController.isUidEmulationSupported(context), pending);
+    }
+
     @Override public PhoneNfcSession.Reason preflight(SavedCard card) {
         if (adapter == null) return PhoneNfcSession.Reason.NO_NFC;
         if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
@@ -71,6 +80,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     ? PhoneNfcSession.Reason.FOREGROUND_REQUIRED : null;
         }
         if (useXiaomi()) return null;
+        if (useMotorolaRaw()) return null;
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) return PhoneNfcSession.Reason.UNSUPPORTED;
         if ((path == NfcActivationPolicy.Path.EXPERIMENTAL_RAW
@@ -164,6 +174,16 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     : OemOperationReport.Operation.ACTIVATE);
             return;
         }
+        // A confirmed generic-raw fallback must not repeat the ST write/rollback
+        // that led to its consent dialog. A pending ST snapshot always wins.
+        if (MotorolaStNfcController.attemptRawMode(useMotorolaRaw(), confirmed,
+                MotorolaStNfcController.hasPendingRestore(context))) {
+            if (legacy.getBoolean("pending_restore", false)) {
+                rawChange(null, RawOperationReport.Operation.STARTUP_PENDING_RESTORE,
+                        legacy.getBoolean("pending_unverified", false), false);
+            }
+            if (motorolaRawChange(card)) return;
+        }
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) {
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.UNSUPPORTED);
@@ -223,6 +243,34 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             CardSession.setActiveCardId(card == null ? null : card.id);
         } catch (Throwable error) {
             CardSession.clearActiveCard();
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
+        }
+    }
+
+    private boolean motorolaRawChange(SavedCard card) throws Exception {
+        OemOperationReport report = new OemOperationReport(card == null
+                ? OemOperationReport.Operation.DEACTIVATE : OemOperationReport.Operation.ACTIVATE);
+        report.notes.add("Model-scoped ST raw compatibility selected; chip identity and reader behavior unverified.");
+        OemNfcController.recordOperation(report);
+        try {
+            boolean applied = MotorolaStNfcController.tryFirst(card != null,
+                    () -> MotorolaStNfcController.setRawCardEnabled(context,
+                            card == null ? new byte[UidCodec.DEFAULT_UID_LENGTH] : card.uid,
+                            card != null, report),
+                    () -> MotorolaStNfcController.hasPendingRestore(context), report);
+            if (applied) {
+                saveLegacy(false, false, null);
+                CardSession.setActiveCardId(card == null ? null : card.id);
+            } else if (Boolean.TRUE.equals(report.rollbackAttempted)) {
+                CardSession.clearActiveCard();
+            }
+            return applied;
+        } catch (Throwable error) {
+            if (report.vendorCallSucceeded != null || Boolean.TRUE.equals(report.rollbackAttempted)) {
+                CardSession.clearActiveCard();
+            }
+            report.failure = error.getClass().getSimpleName() + ": " + error.getMessage();
+            report.stage = "FAILED";
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
         }
     }

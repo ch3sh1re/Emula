@@ -31,7 +31,10 @@ class MotorolaStNfcControllerTest {
         assertTrue(allowed(true))
         assertFalse(MotorolaStNfcController.isTargetDevice(false, 35,
             "motorola", "moto g stylus 5G - 2024", "boston"))
-        assertFalse(allowed(true, sdk = 36))
+        assertTrue(allowed(true, sdk = 36))
+        assertTrue(allowed(true, sdk = 37))
+        assertFalse(allowed(true, sdk = 34))
+        assertFalse(allowed(true, sdk = 38))
         assertFalse(allowed(true, manufacturer = "Samsung"))
         assertFalse(allowed(true, model = "moto g stylus 5G - 2023"))
         assertFalse(allowed(true, device = "avatrn"))
@@ -42,6 +45,61 @@ class MotorolaStNfcControllerTest {
         val report = report()
         val failure = expectFailure {
             MotorolaStNfcController.setCardEnabled(null, uid, true, report)
+        }
+        assertTrue(failure.message!!.contains("activation is disabled"))
+        assertNull(report.vendorCallSucceeded)
+        assertNull(report.rollbackAttempted)
+    }
+
+    @Test
+    fun releaseRawCandidateTargetsOnlyBostonOnAndroid15Through17() {
+        fun target(enabled: Boolean = true, sdk: Int = 35, manufacturer: String? = "motorola",
+                   model: String? = "moto g stylus 5G - 2024", device: String? = "boston") =
+            MotorolaStNfcController.isRawModeTarget(enabled, sdk, manufacturer, model, device)
+        for (sdk in 33..39) assertEquals("SDK $sdk", sdk in 35..37, target(sdk = sdk))
+        for (sdk in 35..37) assertFalse(target(enabled = false, sdk = sdk))
+        assertTrue(target(manufacturer = "MOTOROLA", device = "BOSTON"))
+        assertFalse(target(manufacturer = "Samsung"))
+        assertFalse(target(model = "moto g stylus 5G - 2023"))
+        assertFalse(target(device = "avatrn"))
+        assertFalse(target(manufacturer = null, model = null, device = null))
+    }
+
+    @Test
+    fun rawCompatibilityPreservesOemAndSelectsStForExplicitOrAutomaticRaw() {
+        assertFalse(MotorolaStNfcController.useRawMode(true, false, true, false))
+        assertTrue(MotorolaStNfcController.useRawMode(true, true, true, false))
+        assertTrue(MotorolaStNfcController.useRawMode(true, false, false, false))
+        for (forced in listOf(false, true)) for (oem in listOf(false, true)) {
+            assertFalse(MotorolaStNfcController.useRawMode(false, forced, oem, false))
+        }
+    }
+
+    @Test
+    fun pendingStRestoreTakesPriorityEvenAfterTheModeOrDeviceChanges() {
+        for (targeted in listOf(false, true)) for (forced in listOf(false, true)) {
+            for (oem in listOf(false, true)) {
+                assertTrue(MotorolaStNfcController.useRawMode(targeted, forced, oem, true))
+            }
+        }
+        // Actual restoration still validates model, SDK and the snapshot firmware.
+        assertFalse(MotorolaStNfcController.isApiAllowed(false, true, 36,
+            "motorola", "another model", "boston"))
+    }
+
+    @Test
+    fun confirmedGenericRawFallbackDoesNotRepeatStButCannotBypassItsPendingSnapshot() {
+        assertTrue(MotorolaStNfcController.attemptRawMode(true, false, false))
+        assertFalse(MotorolaStNfcController.attemptRawMode(true, true, false))
+        assertTrue(MotorolaStNfcController.attemptRawMode(true, true, true))
+        assertFalse(MotorolaStNfcController.attemptRawMode(false, false, false))
+    }
+
+    @Test
+    fun rawActivationOnAnUntargetedRuntimeCannotReachTheAndroidContext() {
+        val report = report()
+        val failure = expectFailure {
+            MotorolaStNfcController.setRawCardEnabled(null, uid, true, report)
         }
         assertTrue(failure.message!!.contains("activation is disabled"))
         assertNull(report.vendorCallSucceeded)
