@@ -185,6 +185,18 @@ and clears it after successful restoration. The read-only
 probe is also available on uncatalogued devices and reads
 `0x30/0x31/0x32/0x33/0x58/0x59/0x85` without writing to the controller.
 
+## Development
+
+The integration branch is `main`. Start each feature, fix or documentation change
+from current `main` in a separate `feature/<name>`,
+`fix/<name>` or `docs/<name>` branch. Integrate through a merge request targeting `main`
+(a pull request in Gitea), describing the result and checks performed.
+Until the Gitea repository is available, keep working branches and commits locally.
+
+Mark releases with `v<version>` tags on the corresponding commit in `main`.
+For version 1.0.11, use `v1.0.11`. A separate branch for every version is unnecessary.
+See the [agent guide](AGENTS.md).
+
 ## Build and install
 
 Open the project in Android Studio with JDK 17 or build from the command line.
