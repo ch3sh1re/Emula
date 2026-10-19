@@ -456,3 +456,7 @@ Purpose: inspect raw-NCI availability and configuration without changing it.
 - `distribution/google-play/screenshots/README.md`: isolated emulator setup,
   demo-mode 5G/Wi-Fi commands, and repeatable release screenshot capture. The AVD
   profile, status-bar script, and capture script live in `distribution/google-play/source/`.
+  The phone set covers the list, search, 4/10-byte editors, app/card menus,
+  searchable Quick Settings chooser and CSV save/share chooser. Capture checks
+  demo fixtures and UI states, saves raw PNG/XML, and produces eight RGB PNGs,
+  preview, ZIP, metadata and checksums without activating NFC.
