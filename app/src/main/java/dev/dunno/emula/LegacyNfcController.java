@@ -61,6 +61,19 @@ final class LegacyNfcController {
         return lastOperationReport;
     }
 
+    static void recordAlreadyRestored(RawOperationReport.Operation operation,
+            LegacyNfcDiagnostics.ProbeResult probe) {
+        RawOperationReport report = new RawOperationReport(operation);
+        report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
+        report.stage = "COMPLETE";
+        report.result = "ORIGINAL_CONFIG_ALREADY_PRESENT";
+        report.notes.add("Read-only GET_CONFIG matches every saved parameter; no SET was sent.");
+        report.notes.add(probe.detailedSummary);
+        activeCandidate = null;
+        uidOnlyBaseline = null;
+        lastOperationReport = report;
+    }
+
     static String lastOperationForDisplay() {
         RawOperationReport report = lastOperationReport;
         return report == null ? "LAST NFC OPERATION\n\nNone yet" : report.formatForDisplay();
@@ -109,8 +122,8 @@ final class LegacyNfcController {
         RawOperationReport report = new RawOperationReport(operation);
         lastOperationReport = report;
         try {
-            if (uid == null || uid.length != CardStore.UID_LENGTH) {
-                throw new IllegalArgumentException("UID must contain exactly four bytes");
+            if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
+                throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
             }
             NfcAdapter adapter = NfcAdapter.getDefaultAdapter(context);
             if (adapter == null) throw new IllegalStateException("NFC is unavailable");
@@ -434,15 +447,8 @@ final class LegacyNfcController {
     }
 
     private static byte[] enabledConfig(byte[] uid, EmulationProfile profile) {
-        return new byte[] {
-                6,
-                (byte) 0x85, 1, 0,
-                0x30, 1, profile.bitFrameSdd,
-                0x31, 1, profile.platformConfig,
-                0x32, 1, profile.selInfo,
-                0x33, 4, uid[0], uid[1], uid[2], uid[3],
-                0x58, 1, profile.rats
-        };
+        return RawNciCodec.legacyPayload(uid, profile.bitFrameSdd, profile.platformConfig,
+                profile.selInfo, profile.rats);
     }
 
     private static EmulationProfile resolveProfile(boolean allowUnverified) {
@@ -521,6 +527,12 @@ final class LegacyNfcController {
                 boolean allowUnverified) {
             if (RawNfcDeviceCatalog.prefersDiscoveryTechnologyControl(
                     Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL)
+                    && context instanceof Activity) {
+                return new DiscoveryTechnologyPollingControl(adapter, (Activity) context);
+            }
+            if (RawNfcDeviceCatalog.prefersWatchDiscoveryControl(Build.VERSION.SDK_INT,
+                    context.getPackageManager().hasSystemFeature("android.hardware.type.watch"),
+                    allowUnverified)
                     && context instanceof Activity) {
                 return new DiscoveryTechnologyPollingControl(adapter, (Activity) context);
             }
@@ -862,8 +874,10 @@ final class LegacyNfcController {
         return "UID_READBACK_MISMATCH";
     }
 
-    private static boolean configurationEquals(
+    static boolean configurationEquals(
             Map<Integer, byte[]> expected, Map<Integer, byte[]> actual) {
+        if (!isCompleteExperimentalSnapshot(expected)
+                || !isCompleteExperimentalSnapshot(actual)) return false;
         for (int id : EXPERIMENTAL_SNAPSHOT_PARAMETERS) {
             if (!Arrays.equals(expected.get(id), actual.get(id))) return false;
         }

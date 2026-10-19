@@ -43,7 +43,9 @@ final class OemNfcController {
             androidFailure = describe(failure);
         }
         return new Capabilities(androidOemExtension, androidFailure, vendor,
-                OnePlusVendorNfcController.hasPendingRestore(context));
+                OnePlusVendorNfcController.hasPendingRestore(context),
+                MotorolaStNfcController.probe(context),
+                MotorolaStNfcController.hasPendingRestore(context));
     }
 
     static String lastOperationForDisplay() {
@@ -60,13 +62,17 @@ final class OemNfcController {
                 : report.formatDetailed();
     }
 
+    static OemOperationReport getLastOperationReport() {
+        return lastOperationReport;
+    }
+
     static void restoreDefaults(Context context) throws Exception {
         restoreDefaults(context, OemOperationReport.Operation.DEACTIVATE);
     }
 
     static void restoreDefaults(Context context, OemOperationReport.Operation operation)
             throws Exception {
-        setCardEnabled(context, new byte[CardStore.UID_LENGTH], false, operation);
+        setCardEnabled(context, new byte[UidCodec.DEFAULT_UID_LENGTH], false, operation);
     }
 
     static void setCardEnabled(Context context, byte[] uid, boolean enable) throws Exception {
@@ -79,8 +85,8 @@ final class OemNfcController {
             OemOperationReport.Operation operation) throws Exception {
         OemOperationReport report = new OemOperationReport(operation);
         lastOperationReport = report;
-        if (uid == null || uid.length != CardStore.UID_LENGTH) {
-            report.failure = "UID must contain exactly four bytes";
+        if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
+            report.failure = "UID must contain 4, 7, or 10 bytes";
             report.stage = "FAILED";
             throw new IllegalArgumentException(report.failure);
         }
@@ -90,6 +96,28 @@ final class OemNfcController {
             NfcAdapter adapter = NfcAdapter.getDefaultAdapter(context);
             if (adapter == null) throw new IllegalStateException("NFC adapter is unavailable");
             if (!adapter.isEnabled()) throw new IllegalStateException("NFC is disabled");
+
+            if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.hasPendingRestore(context)) {
+                boolean pending = MotorolaStNfcController.hasPendingRestore(context);
+                if (enable || pending) {
+                    OemOperationReport st = report;
+                    if (MotorolaStNfcController.tryFirst(enable,
+                            () -> MotorolaStNfcController.setCardEnabled(context, uid, enable, st),
+                            () -> MotorolaStNfcController.hasPendingRestore(context), st)) return;
+                    report = new OemOperationReport(operation);
+                    report.stAttempt = st;
+                    lastOperationReport = report;
+                    if (!inspectCapabilities(context).androidOemExtension) {
+                        throw new MotorolaFallbackException(st.failure);
+                    }
+                } else if (!inspectCapabilities(context).androidOemExtension) {
+                    // Startup/deactivation must not call ST setters without our own snapshot.
+                    report.path = OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE;
+                    report.result = "NO_PENDING_ST_RESTORE";
+                    report.stage = "COMPLETE";
+                    return;
+                }
+            }
 
             if (OnePlusVendorNfcController.isTargetDevice()) {
                 try {
@@ -155,6 +183,13 @@ final class OemNfcController {
             report.failure = describe(failure);
             report.stage = "FAILED";
             throw asException(failure);
+        }
+    }
+
+    /** ST failed safely and the Android OEM API is absent; phone raw policy may decide next. */
+    static final class MotorolaFallbackException extends Exception {
+        MotorolaFallbackException(String stFailure) {
+            super("Motorola ST candidate failed; no Android OEM extension: " + stFailure);
         }
     }
 
@@ -244,21 +279,27 @@ final class OemNfcController {
         final String androidFailure;
         final OnePlusVendorNfcController.Probe onePlusVendor;
         final boolean pendingOnePlusRestore;
+        final MotorolaStNfcController.Probe motorolaSt;
+        final boolean pendingMotorolaStRestore;
 
         Capabilities(boolean androidOemExtension, String androidFailure,
                 OnePlusVendorNfcController.Probe onePlusVendor,
-                boolean pendingOnePlusRestore) {
+                boolean pendingOnePlusRestore, MotorolaStNfcController.Probe motorolaSt,
+                boolean pendingMotorolaStRestore) {
             this.androidOemExtension = androidOemExtension;
             this.androidFailure = androidFailure;
             this.onePlusVendor = onePlusVendor;
             this.pendingOnePlusRestore = pendingOnePlusRestore;
+            this.motorolaSt = motorolaSt;
+            this.pendingMotorolaStRestore = pendingMotorolaStRestore;
         }
 
         boolean isSupported() {
-            return androidOemExtension || onePlusVendor.isAvailable();
+            return motorolaSt.available || androidOemExtension || onePlusVendor.isAvailable();
         }
 
         String preferredPath() {
+            if (motorolaSt.available) return "MOTOROLA_ST_VENDOR_HCE";
             if (onePlusVendor.isAvailable()) return "ONEPLUS_VENDOR_HCE";
             if (androidOemExtension) return "ANDROID_OEM_EXTENSION";
             return "UNAVAILABLE";
@@ -279,6 +320,13 @@ final class OemNfcController {
                 text.append(onePlusVendor.isAvailable() ? "available" : "unavailable");
             }
             text.append('\n')
+                    .append("Motorola ST vendor HCE: ")
+                    .append(!motorolaSt.targeted ? "not targeted"
+                            : motorolaSt.available ? "available (experimental)" : "unavailable")
+                    .append('\n')
+                    .append("Pending Motorola ST restore: ")
+                    .append(pendingMotorolaStRestore ? "yes" : "no")
+                    .append('\n')
                     .append("Preferred OEM path: ").append(preferredPath()).append('\n')
                     .append("Pending OnePlus restore: ")
                     .append(pendingOnePlusRestore ? "yes" : "no");
@@ -300,6 +348,10 @@ final class OemNfcController {
             if (detailed && !androidOemExtension && androidFailure != null) {
                 text.append('\n').append("Android OEM probe failure: ")
                         .append(androidFailure);
+            }
+            if (detailed && motorolaSt.targeted && motorolaSt.failure != null) {
+                text.append('\n').append("Motorola ST probe failure: ")
+                        .append(motorolaSt.failure);
             }
             return text.toString();
         }

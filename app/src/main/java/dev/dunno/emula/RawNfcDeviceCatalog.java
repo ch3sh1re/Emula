@@ -25,6 +25,12 @@ final class RawNfcDeviceCatalog {
 
     private RawNfcDeviceCatalog() {}
 
+    /** Watch firmware is unverified even when its manufacturer matches a phone profile. */
+    static boolean prefersWatchDiscoveryControl(int sdkInt, boolean watch,
+            boolean allowUnverified) {
+        return watch && allowUnverified && sdkInt >= 35;
+    }
+
     static boolean isSupported(String manufacturer, String model) {
         return find(manufacturer, model) != null;
     }

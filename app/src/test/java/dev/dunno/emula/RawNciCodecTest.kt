@@ -18,6 +18,46 @@ class RawNciCodecTest {
     }
 
     @Test
+    fun longUidOnlyPayloadsKeepEveryByteAndSnapshotRestorationIsExact() {
+        for (length in listOf(7, 10)) {
+            val uid = ByteArray(length) { (it + 1).toByte() }
+            val expected = byteArrayOf(1, 0x33, length.toByte()) + uid
+            assertArrayEquals(expected, RawNciCodec.uidOnlyPayload(uid))
+            val snapshot = RawNciCodec.parseGetConfigResponse(
+                byteArrayOf(0, 1, 0x33, length.toByte()) + uid,
+            )
+            assertArrayEquals(expected, RawNciCodec.nfcid1Payload(snapshot[0x33]))
+        }
+        assertArrayEquals(byteArrayOf(1, 0x33, 0), RawNciCodec.nfcid1Payload(byteArrayOf()))
+    }
+
+    @Test
+    fun legacyPayloadKeepsProfilesAndTrailingRatsForEveryUidLength() {
+        for (length in listOf(4, 7, 10)) {
+            val uid = ByteArray(length) { (it + 1).toByte() }
+            val prefix = byteArrayOf(6, 0x85.toByte(), 1, 0, 0x30, 1)
+            val pixel = prefix + byteArrayOf(4, 0x31, 1, 0, 0x32, 1, 0, 0x33, length.toByte()) +
+                uid + byteArrayOf(0x58, 1, 0)
+            val cts = prefix + byteArrayOf(6, 0x31, 1, 0x0C, 0x32, 1, 0x20, 0x33, length.toByte()) +
+                uid + byteArrayOf(0x58, 1, 0x40)
+            assertArrayEquals(pixel, RawNciCodec.legacyPayload(uid, 4, 0, 0, 0))
+            assertArrayEquals(cts, RawNciCodec.legacyPayload(uid, 6, 0x0C, 0x20, 0x40))
+        }
+    }
+
+    @Test
+    fun activationPayloadsRejectInvalidLengthsInsteadOfTruncating() {
+        for (length in listOf(0, 3, 5, 6, 8, 9, 11)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                RawNciCodec.uidOnlyPayload(ByteArray(length))
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                RawNciCodec.legacyPayload(ByteArray(length), 4, 0, 0, 0)
+            }
+        }
+    }
+
+    @Test
     fun frameworkStatusesHaveStableNames() {
         assertEquals("SUCCESS", RawNciCodec.frameworkStatusName(0))
         assertEquals("REJECTED", RawNciCodec.frameworkStatusName(1))

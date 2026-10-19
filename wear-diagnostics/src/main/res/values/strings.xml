@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Emula Watch Probe</string>
+    <string name="title">Emula · NFC</string>
+    <string name="read_only_note">Check which NFC APIs your watch supports and read its current NFC settings.</string>
+    <string name="refresh">Check APIs</string>
+    <string name="read_config">Read NFC settings</string>
+    <string name="checking">Checking APIs…</string>
+    <string name="reading">Reading NFC settings…</string>
+    <string name="checked">API check complete</string>
+    <string name="probe_complete">NFC settings read</string>
+    <string name="probe_failed">Could not read NFC settings. See the report below.</string>
+    <string name="missing_permission">Grant the ADB permission to read NFC settings.</string>
+    <string name="no_nfc">NFC adapter unavailable</string>
+    <string name="nfc_disabled">NFC is off in watch settings.</string>
+    <string name="missing_raw_api">Raw NCI API unavailable</string>
+    <string name="save_failed">Could not save the report for ADB.</string>
+    <string name="report_saved">Report saved. You can retrieve it with ADB.</string>
+    <string name="grant_hint">To read NFC settings, run this ADB command.\nadb shell pm grant dev.dunno.emula.watchprobe android.permission.WRITE_SECURE_SETTINGS</string>
+</resources>

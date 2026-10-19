@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Granted manually through ADB; this is not a runtime permission dialog. -->
     <uses-permission
         android:name="android.permission.WRITE_SECURE_SETTINGS"
@@ -13,6 +17,7 @@
         android:required="true"
         tools:ignore="UnnecessaryRequiredFeature" />
     <application
+        android:name=".EmulaApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
@@ -27,14 +32,89 @@
         <uses-library
             android:name="nfcvendorlib"
             android:required="false" />
+        <uses-library
+            android:name="com.st.android.nfc_extensions"
+            android:required="false" />
 
         <activity
             android:name=".MainActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:launchMode="singleTask"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="application/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="application/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/vnd.ms-excel" />
+            </intent-filter>
         </activity>
+        <activity android:name=".CardActionActivity" android:exported="true"
+            android:excludeFromRecents="true" android:taskAffinity=""
+            android:theme="@style/Theme.Emula.CardAction" />
+        <service android:name=".BackgroundNfcService" android:exported="false"
+            android:foregroundServiceType="connectedDevice" android:stopWithTask="false" />
+        <activity android:name=".CardTilePreferencesActivity"
+            android:exported="true" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".CardWidgetConfigureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/quick_widget_configure">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <receiver
+            android:name=".CardWidgetProvider"
+            android:exported="false"
+            android:label="@string/quick_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/card_widget_info" />
+        </receiver>
+        <receiver android:name=".NfcQuickAccessReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.nfc.action.ADAPTER_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".CardTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_card_24"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <provider
+            android:name=".CardExportProvider"
+            android:authorities="${applicationId}.card-exports"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

@@ -47,4 +47,24 @@ class NfcActivationPolicyTest {
             NfcActivationPolicy.choose(false, false, true, false, false, false),
         )
     }
+
+    @Test
+    fun forcedRawOnUncataloguedVendorDeviceStillRequiresFirmwareConsent() {
+        assertEquals(
+            NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW,
+            NfcActivationPolicy.choose(true, true, true, false, true, false),
+        )
+        assertEquals(
+            NfcActivationPolicy.Path.EXPERIMENTAL_RAW,
+            NfcActivationPolicy.choose(true, true, true, false, true, true),
+        )
+        assertEquals(
+            NfcActivationPolicy.Path.OEM,
+            NfcActivationPolicy.choose(true, true, true, false, false, true),
+        )
+        assertEquals(
+            NfcActivationPolicy.Path.UNSUPPORTED,
+            NfcActivationPolicy.choose(false, true, true, false, true, false),
+        )
+    }
 }

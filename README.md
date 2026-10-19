@@ -1,6 +1,6 @@
 # Emula
 
-A small Android app for checking emulation of four-byte NFC-A UIDs.
+A small Android app for testing emulation of 4-, 7- and 10-byte NFC-A UIDs.
 It can store several cards.
 
 Emula is free and has no ads, paid features, purchases, subscriptions or donations.
@@ -12,15 +12,87 @@ you have permission to test.
 ## Features
 
 - Store multiple cards locally on the phone.
-- Enter a UID manually or read it from a physical NFC-A card.
+- Enter a 4-, 7- or 10-byte UID or read it from an NFC-A card.
+- Select the UID length in the editor. Reading a card sets the length automatically.
 - Keep the editor and its draft open when the screen rotates.
 - Account for system bars, gesture navigation and display cutouts in either orientation.
 - Edit or delete cards through the `⋮` menu.
+- Search for a card by name or part of its UID in the main list or the tile chooser.
 - Tap a card to activate it and tap it again to restore the normal NFC configuration.
+- Switch cards through launcher shortcuts, pinned shortcuts, home screen widgets or the Quick Settings tile.
 - Restore the default NFC configuration on every cold start.
 
 Restarting the process, the phone or NFC ends the active selection.
 Saved cards stay in the list until you choose one to activate again.
+
+Long-press the Emula launcher icon to see shortcuts for the first four cards.
+To pin an individual shortcut, open the card menu and choose Add home screen shortcut.
+Add the Emula card widget from the launcher's widget list and select a card when placing it.
+To add the tile, open the app menu and choose Add Quick Settings tile.
+It toggles the last card you selected. The first time you use the tile,
+it opens a card chooser. Hold the tile to choose a different card.
+You can also open a card's menu and choose Use in Quick Settings.
+This saves the selection without starting emulation.
+Tap the magnifying glass between `+` and the menu to search. In the tile chooser, the search field
+is below the title. A UID can include spaces, colons or hyphens.
+[Search behavior and checks](docs/features/search/README.md).
+A quick action toggles the card in the background. While a card is active, a notification
+offers a stop action. Tap the shortcut, widget or tile again to stop the card.
+Emula opens when it needs a permission, a card selection or approval for experimental mode.
+Opening the app preserves the current background session.
+[Quick actions](docs/features/quick-access/README.md) ·
+[Background control](docs/features/background-control/README.md).
+
+Experimental ST emulation on Motorola is disabled in regular builds pending
+reliable controller identification and verification with a physical NFC reader.
+Snapshots from the earlier experimental build can still be restored.
+[Status and conditions for enabling the experiment](docs/features/motorola-auto/README.md).
+
+In the editor, the `4 / 7 / 10 bytes` selector comes before the UID fields. The bytes
+appear in numbered cells of equal size. Four bytes fit in one row, seven in rows of 4+3,
+and ten in rows of 5+5. Each row is centered. Tapping a filled byte selects
+the entire byte for replacement. Changing length retains the fields and input focus
+so the keyboard stays in UID entry mode.
+The byte fields request a Latin keyboard for plain text with suggestions disabled.
+The editor is excluded from credential autofill.
+Clearing a cell moves the active byte to the left, skipping empty cells.
+The cursor goes to the end of the previous byte so that deletion can continue
+one character at a time. Deleting in an empty cell also moves left.
+The whole UID area uses one keyboard connection. Moving between bytes changes the
+highlight and input position and preserves the handler for holding down the delete key.
+The UID area always reserves two rows so the read button stays in place and the window
+keeps the same height when the length changes. Four bytes are centered in that space.
+Changing the length keeps all entered bytes in the draft, including temporarily hidden bytes.
+The draft and selected length survive screen rotation. New cards default
+to four bytes. Existing saved cards use the same storage format.
+
+The [Android OEM API](https://android.googlesource.com/platform/packages/modules/Nfc/+/android-16.0.0_r4/framework/java/android/nfc/NfcOemExtension.java)
+accepts 4-, 7- and 10-byte UIDs. The OEM and raw paths pass the full UID
+and preserve the existing profile parameters. The physical-reader results
+listed below cover four-byte UIDs. Seven- and ten-byte UIDs still need testing
+on a specific phone with an external reader.
+
+## CSV import and export
+
+The app menu includes Import CSV and Export CSV. An export can be saved
+to a file selected in the system picker or sent through Share. A CSV file can also
+be opened in Emula or sent to the app through the system share sheet.
+
+The file uses UTF-8, a `name,uid` header, a comma between fields and UIDs of 8, 14
+or 20 hexadecimal characters with no separators.
+
+~~~csv
+name,uid
+Office,01020304
+"Gym, entrance",04A1B2C3D4E5F6
+~~~
+
+Before importing, the app validates the entire file and asks for confirmation.
+If cards already exist, Add appends new UIDs and keeps existing cards,
+and Replace all replaces the list with the file contents. If the list is empty,
+confirm Import. Replacing the list first deactivates any active card.
+
+[CSV format and behavior](docs/features/csv/README.md).
 
 ## Compatibility
 
@@ -32,13 +104,16 @@ The OnePlus 15 CPH2747 on Android 16 has a separate path. The reviewed global fi
 provides the system library `nfcvendorlib` and a method called
 `setHceTypeAConfig()` that performs the ST54L configuration inside the NFC service.
 On this model the app prefers the vendor path for the matching firmware and uses CTS Type-4A
-parameters `ATQA 06 0C` and `SAK 20` with a four-byte UID. Before activation the app saves
+parameters `ATQA 06 0C` and `SAK 20` with the selected UID. Before activation the app saves
 the system access-card state for restoration after deactivation, a failure or the next
 cold start. The app manages the system RF-field guard during the session
 so the configuration persists when an external reader first detects the phone.
 An external reader confirmed activation of a four-byte UID through this path on the
-OnePlus 15 CPH2747 running Android 16 / API 36. On other models the library is
-optional and the app skips this path.
+OnePlus 15 CPH2747 running Android 16 / API 36. An experimental version of this vendor path
+is also enabled for OnePlus CPH2707 on Android 16 / API 36 or later when the library,
+method and system adapter are available. Activation and restoration on CPH2707 still
+need a physical-device test. Other models skip this path.
+The library is optional.
 
 The app checks whether the method is present on the installed system. Checking only
 `SDK_INT` would be insufficient because Android 16 QPR2 still reports major API level 36, and a manufacturer
@@ -153,8 +228,8 @@ cards. The timed checks stop. Returning to the app triggers an immediate permiss
 ## Usage
 
 1. Tap `+` and enter a card name.
-2. Enter the four UID bytes in hex or tap **Read from card** and hold the card against
-   the back of the phone.
+2. Choose 4, 7 or 10 bytes and enter the UID in hex, or tap **Read from card**
+   and hold the card against the back of the phone.
 3. Save the card.
 4. Tap the card in the list to activate it. A light outline and an **Active** badge
    next to its name mark the active card. Tapping it again restores normal NFC.

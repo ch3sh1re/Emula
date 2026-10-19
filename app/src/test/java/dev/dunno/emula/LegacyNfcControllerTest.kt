@@ -113,4 +113,21 @@ class LegacyNfcControllerTest {
             complete.filterKeys { it != 0x33 },
         ))
     }
+
+    @Test
+    fun clearingPendingRawRestoreRequiresExactReadbackOfEverySavedParameter() {
+        val original = linkedMapOf(
+            0x85 to byteArrayOf(1), 0x30 to byteArrayOf(4), 0x31 to byteArrayOf(0),
+            0x32 to byteArrayOf(0x20), 0x33 to byteArrayOf(8, 0, 0, 0),
+            0x58 to byteArrayOf(0x70),
+        )
+        val readback = original.mapValues { it.value.copyOf() }
+        assertTrue(LegacyNfcController.configurationEquals(original, readback))
+        assertFalse(LegacyNfcController.configurationEquals(original,
+            readback + (0x33 to byteArrayOf(1, 2, 3, 4))))
+        assertFalse(LegacyNfcController.configurationEquals(original,
+            readback.filterKeys { it != 0x85 }))
+        assertFalse(LegacyNfcController.configurationEquals(emptyMap(), emptyMap()))
+        assertFalse(LegacyNfcController.configurationEquals(null, readback))
+    }
 }

@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.0.11 (31)
+
+- Align the add/search/menu toolbar buttons and match the Name field styling and
+  label spacing to the UID controls in the card editor.
+- Experimentally route OnePlus CPH2707 on Android 16+ through the existing
+  setHceTypeAConfig vendor path, including its saved-state restoration. Hardware
+  activation and restoration on this model remain unverified.
+- Search saved cards by name or UID in the catalog and Quick Settings chooser;
+  select a tile target directly from each card's menu without starting emulation.
+- Match the CSV export action dialog to the tile chooser and use emula.csv for saved
+  and shared files, keeping independent immutable snapshots and existing share URIs.
+- Match the phone tile card chooser to the card list and editor, with a selected
+  target indicator, separate name/UID text and a bounded scrolling list.
+- Bind the phone NFC tile when Quick Settings opens and retain listening until it
+  closes, instead of reconnecting the active-mode tile around clicks and updates.
+- Refresh an already-listening Quick Settings tile immediately after NFC changes,
+  and remove opaque window/task animations from the shortcut routing Activity.
+- Show foreground NFC notifications immediately, replace stale result toasts and
+  add result haptics that respect silent mode, DND and touch feedback settings.
+- Keep the Motorola ST experiment disabled in ordinary phone builds pending reliable
+  controller identification and reader verification. Preserve restoration of snapshots
+  from earlier test builds even when new ST activations are disabled.
+- Run phone shortcuts, widgets and Quick Settings toggles in a foreground service
+  without opening the card list; offer deactivation in its notification. Share one
+  process-wide queue with the UI, diagnostics and catalog changes, retain pending
+  restoration after failure, and keep active sessions when the UI is recreated.
+- Add dynamic and pinned card shortcuts, configurable home screen card widgets,
+  and a Quick Settings tile using the existing card activation flow.
+- Add UTF-8 CSV import/export for named 4/7/10-byte UIDs through Android document
+  pickers and file sharing, with explicit import approval and append/replace modes.
+- Preserve existing cards when appending and deactivate an active card before
+  replacing the catalog. Validate the whole file before saving.
+- Cancel CSV reads on dismissal, replacement or Activity destruction; close input
+  off the UI thread and notify the document provider while opening a file.
+- Preserve SAK/ATQA research and primary-source artifacts in docs/features/sak-atqa.
+
+## 1.0.10 (29)
+
+- Add 7- and 10-byte UIDs alongside existing 4-byte cards, with a length selector and
+  automatic length detection when reading a card, explained below the read button.
+- Show centered, numbered byte cells with whole-byte selection and a visible cursor.
+- Keep the keyboard and editor layout stable, suppress credential autofill suggestions,
+  and continue held backspace across bytes while moving the active cell left.
+- Preserve drafts across length changes and rotation, and keep existing four-byte cards
+  compatible with the unchanged storage format.
+- Use consistent punctuation in explanatory text and instructions.
+
+Long UID activation depends on the phone, firmware, and reader; external-reader
+confirmation for 7- and 10-byte UIDs is still pending.
+
 ## 1.0.9 (28)
 
 - Add startup instructions for granting the one-time ADB permission.

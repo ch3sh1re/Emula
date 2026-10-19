@@ -14,7 +14,8 @@ final class OemOperationReport {
 
     enum Path {
         ANDROID_OEM_EXTENSION,
-        ONEPLUS_VENDOR_HCE
+        ONEPLUS_VENDOR_HCE,
+        MOTOROLA_ST_VENDOR_HCE
     }
 
     final Operation operation;
@@ -41,6 +42,8 @@ final class OemOperationReport {
     String rollbackFailure;
     String result;
     String failure;
+    OemOperationReport stRollback;
+    OemOperationReport stAttempt;
 
     OemOperationReport(Operation operation) {
         this.operation = operation;
@@ -83,6 +86,13 @@ final class OemOperationReport {
             }
         }
 
+        if (path == Path.MOTOROLA_ST_VENDOR_HCE) {
+            text.append('\n').append("MOTOROLA ST VENDOR HCE\n");
+            append(text, "Snapshot", snapshotState);
+            append(text, "Vendor call returned (void)", outcome(vendorCallSucceeded));
+            append(text, "External reader", "not verified by this report");
+        }
+
         if (rollbackAttempted != null || rollbackFailure != null) {
             text.append('\n').append("ROLLBACK\n");
             append(text, "Attempted", outcome(rollbackAttempted));
@@ -95,6 +105,14 @@ final class OemOperationReport {
         }
         if (detailed) {
             for (String note : notes) append(text, "Note", note);
+        }
+        if (stRollback != null) {
+            text.append('\n').append("ST ROLLBACK EVIDENCE\n")
+                    .append(stRollback.format(detailed));
+        }
+        if (stAttempt != null) {
+            text.append('\n').append("PRECEDING MOTOROLA ST ATTEMPT\n")
+                    .append(stAttempt.format(detailed));
         }
         return text.toString();
     }

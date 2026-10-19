@@ -14,3 +14,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Emula"
 include(":app")
+include(":wear-diagnostics")
+include(":wear")
