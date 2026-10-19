@@ -2,7 +2,6 @@ package dev.dunno.emula;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -70,11 +69,11 @@ import java.util.function.Consumer;
 public final class MainActivity extends Activity {
     private static final int BACKGROUND = Color.rgb(27, 29, 33);
     private static final int SURFACE = Color.rgb(48, 52, 60);
-    private static final int DIALOG_SURFACE = Color.rgb(53, 57, 65);
-    private static final int TEXT_SECONDARY = Color.rgb(174, 181, 194);
-    private static final int ACCENT = Color.rgb(113, 164, 255);
+    private static final int DIALOG_SURFACE = AppDialogs.SURFACE;
+    private static final int TEXT_SECONDARY = AppDialogs.SECONDARY;
+    private static final int ACCENT = AppDialogs.ACCENT;
     private static final int ACTIVE_BORDER = Color.rgb(218, 240, 255);
-    private static final int ERROR_TEXT = Color.rgb(255, 138, 128);
+    private static final int ERROR_TEXT = AppDialogs.ERROR;
 
     private static final String STATE_EDITOR_OPEN = "editor.open";
     private static final String STATE_PERMISSION_PROMPT_SHOWN = "permission.prompt_shown";
@@ -116,7 +115,7 @@ public final class MainActivity extends Activity {
     private CardTransfer cardTransfer;
     private CardQuickActions quickActions;
     private PhoneNfcRuntime nfc;
-    private AlertDialog nfcConsentDialog;
+    private Dialog nfcConsentDialog;
     private final Runnable nfcStateChanged = () -> {
         if (isFinishing() || isDestroyed()) return;
         busy = nfc.isBusy();
@@ -145,7 +144,7 @@ public final class MainActivity extends Activity {
     private ImageButton addButton;
     private ImageButton appMenuButton;
     private Button permissionButton;
-    private AlertDialog permissionDialog;
+    private Dialog permissionDialog;
     private boolean permissionPromptShown;
     private boolean reopenPermissionDialog;
 
@@ -601,12 +600,16 @@ public final class MainActivity extends Activity {
     }
 
     private ImageButton iconAction(int icon, int label) {
+        return iconAction(icon, getString(label));
+    }
+
+    private ImageButton iconAction(int icon, CharSequence label) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(icon);
         button.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setPadding(dp(12), dp(12), dp(12), dp(12));
-        button.setContentDescription(getString(label));
+        button.setContentDescription(label);
         button.setClickable(true);
         button.setFocusable(true);
         applyBorderlessRipple(button);
@@ -809,18 +812,7 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout choiceDialogPanel(int titleResource) {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(24), dp(22), dp(24), dp(12));
-        panel.setBackground(rounded(DIALOG_SURFACE, 22));
-        TextView title = new TextView(this);
-        title.setText(titleResource);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(0, 0, 0, dp(18));
-        panel.addView(title);
-        return panel;
+        return AppDialogs.panel(this, titleResource);
     }
 
     private LinearLayout choiceDialogList(LinearLayout panel) {
@@ -898,20 +890,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showChoiceDialog(Dialog dialog, LinearLayout panel) {
-        dialog.setContentView(panel);
-        dialog.show();
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams params = window.getAttributes();
-            params.width = getEditorDialogWidth();
-            panel.measure(View.MeasureSpec.makeMeasureSpec(params.width, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(getDiagnosticsDialogHeight(), View.MeasureSpec.AT_MOST));
-            params.height = panel.getMeasuredHeight();
-            params.dimAmount = 0.68f;
-            window.setAttributes(params);
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        }
+        AppDialogs.show(this, dialog, panel);
     }
 
     private View createEmptyCard() {
@@ -991,16 +970,11 @@ public final class MainActivity extends Activity {
             top.addView(badge, badgeParams);
         }
 
-        TextView menu = new TextView(this);
-        menu.setText("⋮");
-        menu.setTextColor(Color.argb(active ? 255 : 210, 255, 255, 255));
-        menu.setTextSize(28);
-        menu.setGravity(Gravity.CENTER);
-        menu.setContentDescription(getString(R.string.card_menu_content_description, card.name));
-        menu.setClickable(true);
-        menu.setFocusable(true);
+        ImageButton menu = iconAction(R.drawable.ic_more_vert_24,
+                getString(R.string.card_menu_content_description, card.name));
+        menu.setImageTintList(ColorStateList.valueOf(Color.argb(active ? 255 : 210, 255, 255, 255)));
         menu.setOnClickListener(v -> showCardMenu(v, card));
-        top.addView(menu, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        top.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         TextView uid = new TextView(this);
         uid.setText(getString(R.string.card_uid, Hex.bytes(card.uid)));
@@ -1025,11 +999,13 @@ public final class MainActivity extends Activity {
         if (busy || readerMode) return;
         PopupMenu popup = new PopupMenu(this, anchor);
         popup.getMenu().add(Menu.NONE, MENU_EDIT_CARD, Menu.NONE, R.string.menu_edit);
-        MenuItem tile = popup.getMenu().add(Menu.NONE, MENU_TILE_CARD, Menu.NONE, R.string.quick_use_for_tile);
-        tile.setCheckable(true);
-        tile.setChecked(card.id.equals(QuickAccess.lastCard(this)));
+        boolean selectedForTile = card.id.equals(QuickAccess.lastCard(this));
+        popup.getMenu().add(Menu.NONE, MENU_TILE_CARD, Menu.NONE,
+                selectedForTile ? R.string.quick_tile_card_selected : R.string.quick_use_for_tile)
+                .setEnabled(!selectedForTile);
         popup.getMenu().add(Menu.NONE, MENU_PIN_CARD, Menu.NONE, R.string.quick_pin_card);
-        popup.getMenu().add(Menu.NONE, MENU_DELETE_CARD, Menu.NONE, R.string.menu_delete);
+        popup.getMenu().add(1, MENU_DELETE_CARD, Menu.NONE, R.string.menu_delete);
+        popup.getMenu().setGroupDividerEnabled(true);
         popup.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == MENU_EDIT_CARD) {
                 showCardEditor(card);
@@ -1117,7 +1093,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmRawModeEnable() {
-        new AlertDialog.Builder(this)
+        new AppDialogs.Builder(this)
                 .setTitle(R.string.raw_mode_dialog_title)
                 .setMessage(R.string.raw_mode_dialog_message)
                 .setNegativeButton(R.string.action_cancel, null)
@@ -1371,7 +1347,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmEmailDiagnostics(String diagnostics) {
-        new AlertDialog.Builder(this)
+        new AppDialogs.Builder(this)
                 .setTitle(R.string.diagnostics_email_title)
                 .setMessage(getString(R.string.diagnostics_email_message,
                         getString(R.string.diagnostics_email_address)))
@@ -1390,7 +1366,7 @@ public final class MainActivity extends Activity {
         try {
             startActivity(new Intent(Intent.ACTION_SENDTO, mailto));
         } catch (ActivityNotFoundException e) {
-            new AlertDialog.Builder(this)
+            new AppDialogs.Builder(this)
                     .setTitle(R.string.diagnostics_email_unavailable_title)
                     .setMessage(getString(R.string.diagnostics_email_unavailable_message,
                             getString(R.string.diagnostics_email_address)))
@@ -1402,11 +1378,12 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmDelete(SavedCard card) {
-        new AlertDialog.Builder(this)
+        new AppDialogs.Builder(this)
                 .setTitle(R.string.delete_card_title)
                 .setMessage(getString(R.string.delete_card_message, card.name))
                 .setNegativeButton(R.string.action_cancel, null)
                 .setPositiveButton(R.string.menu_delete, (dialog, which) -> deleteCard(card))
+                .setDestructivePositiveButton()
                 .show();
     }
 
@@ -1433,7 +1410,7 @@ public final class MainActivity extends Activity {
             return CardImport.apply(app, incoming, replace);
         }, (result, failure) -> {
             if (failure != null) {
-                new AlertDialog.Builder(this).setTitle(R.string.csv_error_title)
+                new AppDialogs.Builder(this).setTitle(R.string.csv_error_title)
                         .setMessage(getString(R.string.csv_import_failed) + "\n\n" + PhoneNfcRuntime.message(this, failure))
                         .setPositiveButton(R.string.action_close, null).show();
             } else {
@@ -1470,7 +1447,7 @@ public final class MainActivity extends Activity {
         editorName = new EditText(this);
         editorName.setSingleLine(true);
         editorName.setHint(R.string.editor_name_hint);
-        editorName.setHintTextColor(Color.rgb(133, 139, 151));
+        editorName.setHintTextColor(TEXT_SECONDARY);
         editorName.setTextColor(Color.WHITE);
         editorName.setTextSize(17);
         editorName.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -1812,16 +1789,7 @@ public final class MainActivity extends Activity {
     }
 
     private Button dialogAction(int textResource) {
-        Button button = new Button(this);
-        button.setAllCaps(false);
-        button.setText(textResource);
-        button.setTextColor(ACCENT);
-        button.setTextSize(15);
-        button.setBackgroundColor(Color.TRANSPARENT);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setPadding(dp(14), 0, dp(14), 0);
-        return button;
+        return AppDialogs.action(this, textResource);
     }
 
     private void saveEditor() {
@@ -2031,7 +1999,7 @@ public final class MainActivity extends Activity {
 
     private void confirmExperimentalRawMode(SavedCard card, Runnable onSuccess, String progressText) {
         if (nfcConsentDialog != null) return;
-        nfcConsentDialog = new AlertDialog.Builder(this)
+        nfcConsentDialog = new AppDialogs.Builder(this)
                 .setTitle(R.string.experimental_raw_dialog_title)
                 .setMessage(getString(R.string.experimental_raw_dialog_message,
                         Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT))
@@ -2073,7 +2041,7 @@ public final class MainActivity extends Activity {
 
     private void showNfcSupportDialog(int titleResource) {
         if (isFinishing() || isDestroyed()) return;
-        new AlertDialog.Builder(this)
+        new AppDialogs.Builder(this)
                 .setTitle(titleResource)
                 .setMessage(getString(R.string.nfc_failure_support_message,
                         getString(R.string.diagnostics_email_address)))
@@ -2144,7 +2112,7 @@ public final class MainActivity extends Activity {
         }
         permissionPromptShown = true;
         reopenPermissionDialog = false;
-        permissionDialog = new AlertDialog.Builder(this)
+        permissionDialog = new AppDialogs.Builder(this)
                 .setTitle(R.string.permission_dialog_title)
                 .setMessage(getString(R.string.permission_dialog_message, grantCommand()))
                 .setNegativeButton(R.string.action_close, null)
