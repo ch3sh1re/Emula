@@ -130,4 +130,26 @@ class LegacyNfcControllerTest {
         assertFalse(LegacyNfcController.configurationEquals(emptyMap(), emptyMap()))
         assertFalse(LegacyNfcController.configurationEquals(null, readback))
     }
+
+    @Test
+    fun nothingReadOnlyReportAlreadyMatchesThePendingRestoreSnapshot() {
+        // The six parameters in the 1.0.11 STARTUP_PENDING_RESTORE request.
+        val saved = RawNciCodec.decodeConfiguration(
+            "85=01;30=04;31=00;32=20;33=01020304;58=40",
+        )
+        // The user's subsequent GET_CONFIG response includes the unchanged 0x59.
+        val response = ("00 07 30 01 04 31 01 00 32 01 20 33 04 01 02 03 04 " +
+            "58 01 40 59 00 85 01 01").split(" ").map { it.toInt(16).toByte() }.toByteArray()
+        val readback = RawNciCodec.parseGetConfigResponse(response)
+        assertTrue(LegacyNfcController.configurationEquals(saved, readback))
+
+        // No changed or missing controlled parameter may clear recovery.
+        for ((parameter, value) in saved) {
+            val changed = value.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() }
+            assertFalse("Changed parameter 0x${parameter.toString(16)}",
+                LegacyNfcController.configurationEquals(saved, readback + (parameter to changed)))
+            assertFalse("Missing parameter 0x${parameter.toString(16)}",
+                LegacyNfcController.configurationEquals(saved, readback.filterKeys { it != parameter }))
+        }
+    }
 }
