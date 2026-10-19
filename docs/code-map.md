@@ -361,6 +361,11 @@ Purpose: provide the permission-gated, device-catalogued raw NCI fallback.
   exact original values, including an empty NFCID1.
 - An uncatalogued opt-in must carry a complete original-configuration snapshot;
   it is encoded by `RawNciCodec` and retained only until exact restoration.
+- Before an unverified startup restore, `PhoneNfcBackend.rawChange` reads the
+  controlled parameters. An exact match with the saved snapshot completes recovery
+  without SET_CONFIG; a mismatch retains the normal restore path. The Nothing A063
+  report fixture in `LegacyNfcControllerTest` covers matching, changed and missing
+  values. This does not add a device profile or establish UID-emulation support.
 - Transaction ownership: `PhoneNfcBackend.rawChange`, `initialize`, `saveLegacy`
   and `loadOriginal`; UI preferences remain in MainActivity.isRawModeForced and
   setRawModeForced. The shared PhoneNfcRuntime serializes every entry point.

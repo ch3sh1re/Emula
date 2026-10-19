@@ -248,7 +248,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 }
             }
             boolean alreadyRestored = false;
-            if (card == null && unverified && MotorolaStNfcController.isTargetDevice()
+            if (card == null && unverified
                     && operation == RawOperationReport.Operation.STARTUP_PENDING_RESTORE) {
                 LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
                 alreadyRestored = LegacyNfcController.configurationEquals(original, probe.configuration);
