@@ -35,6 +35,8 @@
         <uses-library
             android:name="com.st.android.nfc_extensions"
             android:required="false" />
+        <uses-library android:name="com.xiaomi.nfc" android:required="false" />
+        <uses-library android:name="com.nxp.nfc.nq" android:required="false" />
 
         <activity
             android:name=".MainActivity"

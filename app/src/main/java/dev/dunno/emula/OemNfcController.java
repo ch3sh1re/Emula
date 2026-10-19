@@ -66,6 +66,10 @@ final class OemNfcController {
         return lastOperationReport;
     }
 
+    static void recordOperation(OemOperationReport report) {
+        lastOperationReport = report;
+    }
+
     static void restoreDefaults(Context context) throws Exception {
         restoreDefaults(context, OemOperationReport.Operation.DEACTIVATE);
     }

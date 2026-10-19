@@ -1149,7 +1149,9 @@ public final class MainActivity extends Activity {
         panel.addView(reportScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
-        boolean canProbe = rawApi && permission && adapter != null && adapter.isEnabled();
+        boolean canProbe = (rawApi || XiaomiNfcController.isTargetDevice()
+                || XiaomiNfcController.hasPendingRestore(this))
+                && permission && adapter != null && adapter.isEnabled();
         Button probeButton = null;
         if (canProbe) {
             diagnosticsText.append("\n\n" + getString(R.string.diagnostics_prepare_report_hint));
@@ -1204,11 +1206,22 @@ public final class MainActivity extends Activity {
                         + getString(R.string.diagnostics_reading));
                 reportScroll.scrollTo(0, 0);
                 Context app = getApplicationContext();
-                nfc.submit(false, state -> LegacyNfcDiagnostics.runReadOnlyProbe(app), (result, failure) -> {
+                nfc.submit(false, state -> {
+                    String xiaomi = XiaomiNfcController.capabilities(app, true);
+                    try {
+                        if (!rawApi) return new String[] {xiaomi, xiaomi};
+                        LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(app);
+                        return new String[] {probe.userSummary + "\n\n" + xiaomi,
+                                probe.detailedSummary + "\n\n" + xiaomi};
+                    } catch (Throwable error) {
+                        String message = getString(R.string.diagnostics_failed, safeMessage(error));
+                        return new String[] {message + "\n\n" + xiaomi, message + "\n\n" + xiaomi};
+                    }
+                }, (result, failure) -> {
                     if (isDestroyed() || !dialog.isShowing()) return;
                     if (failure == null) {
-                        diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result.userSummary));
-                        detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result.detailedSummary);
+                        diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result[0]));
+                        detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result[1]);
                     } else {
                         String message = getString(R.string.diagnostics_failed, safeMessage(failure));
                         diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, message));
@@ -1264,6 +1277,7 @@ public final class MainActivity extends Activity {
                 .append(" / API ").append(Build.VERSION.SDK_INT)
                 .append("\n\nCAPABILITIES\n")
                 .append(oemCapabilities.format(false))
+                .append('\n').append(XiaomiNfcController.capabilities(this, false))
                 .append('\n')
                 .append("Raw NCI API: ").append(rawApi ? "available" : "unavailable")
                 .append('\n')
@@ -1306,6 +1320,7 @@ public final class MainActivity extends Activity {
                 .append(" / API ").append(Build.VERSION.SDK_INT)
                 .append("\n\nCAPABILITIES\n")
                 .append(oemCapabilities.format(true))
+                .append('\n').append(XiaomiNfcController.capabilities(this, false))
                 .append('\n')
                 .append("Raw NCI API: ").append(rawApi ? "available" : "unavailable")
                 .append('\n')
@@ -1944,19 +1959,19 @@ public final class MainActivity extends Activity {
 
     private void setActiveCard(SavedCard card, Runnable onSuccess, String progressText, boolean confirmed) {
         PhoneNfcSession.Reason problem = nfc.session.backend.preflight(card);
-        if (problem == PhoneNfcSession.Reason.CONSENT && !confirmed) {
-            confirmExperimentalRawMode(card, onSuccess, progressText);
+        if (requiresConsent(problem) && !confirmed) {
+            confirmExperimentalMode(problem, card, onSuccess, progressText);
             return;
         }
-        if (problem != null && !(confirmed && problem == PhoneNfcSession.Reason.CONSENT)) {
+        if (problem != null && !(confirmed && requiresConsent(problem))) {
             showNfcFailure(new PhoneNfcSession.Failure(problem), card == null);
             return;
         }
         String id = card == null ? null : card.id;
         runNfcWork(true, progressText, state -> { state.change(id, confirmed); return null; }, (v, failure) -> {
             if (failure instanceof PhoneNfcSession.Failure
-                    && ((PhoneNfcSession.Failure) failure).reason == PhoneNfcSession.Reason.CONSENT) {
-                confirmExperimentalRawMode(card, onSuccess, progressText);
+                    && requiresConsent(((PhoneNfcSession.Failure) failure).reason)) {
+                confirmExperimentalMode(((PhoneNfcSession.Failure) failure).reason, card, onSuccess, progressText);
             } else if (failure != null) {
                 showNfcFailure(failure, card == null);
             } else {
@@ -1992,14 +2007,21 @@ public final class MainActivity extends Activity {
         } else showSnackbar(message, ERROR_SNACKBAR_DURATION_MILLIS);
     }
 
-    private void confirmExperimentalRawMode(SavedCard card, Runnable onSuccess, String progressText) {
+    private static boolean requiresConsent(PhoneNfcSession.Reason reason) {
+        return reason == PhoneNfcSession.Reason.CONSENT || reason == PhoneNfcSession.Reason.XIAOMI_CONSENT;
+    }
+
+    private void confirmExperimentalMode(PhoneNfcSession.Reason reason, SavedCard card,
+            Runnable onSuccess, String progressText) {
         if (nfcConsentDialog != null) return;
+        boolean xiaomi = reason == PhoneNfcSession.Reason.XIAOMI_CONSENT;
         nfcConsentDialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.experimental_raw_dialog_title)
-                .setMessage(getString(R.string.experimental_raw_dialog_message,
+                .setTitle(xiaomi ? R.string.xiaomi_trial_title : R.string.experimental_raw_dialog_title)
+                .setMessage(xiaomi ? getString(R.string.xiaomi_trial_message)
+                        : getString(R.string.experimental_raw_dialog_message,
                         Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT))
                 .setNegativeButton(R.string.action_cancel, null)
-                .setPositiveButton(R.string.experimental_raw_try,
+                .setPositiveButton(xiaomi ? R.string.xiaomi_trial_try : R.string.experimental_raw_try,
                         (dialog, which) -> setActiveCard(card, onSuccess, progressText, true))
                 .create();
         nfcConsentDialog.setOnDismissListener(dialog -> nfcConsentDialog = null);

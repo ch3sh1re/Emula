@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 1.0.12 (32)
+
+- Offer an explicitly approved Xiaomi NXP compatibility trial only on Redmi
+  2312DRA50G / garnet Global OS2.0.206.0.VNRMIXM, after the Xiaomi chip-ID and NXP
+  firmware services respond. Other devices retain their existing activation paths.
+- Retain recovery before changing the transit configuration, request firmware
+  defaults on stop/failure/startup recovery, and keep failed resets pending.
+  Bound vendor-call waits and prevent overlapping calls after timeout or process
+  death. Reader activation and payment recovery on this model remain unverified.
+- Include Xiaomi vendor identity, configuration requests, returned status and
+  separate rollback evidence in diagnostic reports.
 - Rename the NFC diagnostic check to Prepare report and explain its purpose.
   When controller details can be collected, enable Copy and Email after the
   collection attempt completes, including failed checks in the exported report.

@@ -31,7 +31,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     @Override public void forgetActive() { CardSession.clearActiveCard(); }
     @Override public boolean recoveryPending() {
         return legacy.getBoolean("pending_restore", false) || MotorolaStNfcController.hasPendingRestore(context)
-                || OnePlusVendorNfcController.hasPendingRestore(context);
+                || OnePlusVendorNfcController.hasPendingRestore(context)
+                || XiaomiNfcController.hasPendingRestore(context);
     }
 
     private boolean permission() {
@@ -51,11 +52,20 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 Build.FINGERPRINT.equals(settings.getString("experimental_raw_fingerprint", null)));
     }
 
+    private boolean useXiaomi() {
+        return XiaomiNfcController.hasPendingRestore(context)
+                || (XiaomiNfcController.isTargetDevice()
+                        && !settings.getBoolean("force_raw_mode", false)
+                        && !OemNfcController.isUidEmulationSupported(context));
+    }
+
     @Override public PhoneNfcSession.Reason preflight(SavedCard card) {
         if (adapter == null) return PhoneNfcSession.Reason.NO_NFC;
         if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
         if (!permission()) return PhoneNfcSession.Reason.PERMISSION;
         if (card == null && recoveryPending()) return null;
+        if (useXiaomi()) return card != null && !XiaomiNfcController.consentAccepted(context)
+                ? PhoneNfcSession.Reason.XIAOMI_CONSENT : null;
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) return PhoneNfcSession.Reason.UNSUPPORTED;
         if (path == NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW) return PhoneNfcSession.Reason.CONSENT;
@@ -80,6 +90,15 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             }
             rawChange(null, RawOperationReport.Operation.STARTUP_PENDING_RESTORE, unverified, false);
             return true;
+        }
+        if (XiaomiNfcController.hasPendingRestore(context)) {
+            requireReady();
+            xiaomiChange(null, OemOperationReport.Operation.STARTUP_RESTORE, false);
+            return true;
+        }
+        if (useXiaomi()) {
+            // No startup reset without our own marker; another app may own a transit override.
+            return adapter != null && adapter.isEnabled() && permission();
         }
         boolean vendorPending = OnePlusVendorNfcController.hasPendingRestore(context)
                 || MotorolaStNfcController.hasPendingRestore(context);
@@ -115,6 +134,11 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         if (card == null && legacy.getBoolean("pending_restore", false)) {
             rawChange(null, RawOperationReport.Operation.DEACTIVATE,
                     legacy.getBoolean("pending_unverified", false), false);
+            return;
+        }
+        if (useXiaomi()) {
+            xiaomiChange(card, card == null ? OemOperationReport.Operation.DEACTIVATE
+                    : OemOperationReport.Operation.ACTIVATE, confirmed);
             return;
         }
         NfcActivationPolicy.Path path = path(card != null);
@@ -166,6 +190,21 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     return;
                 }
             }
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
+        }
+    }
+
+    private void xiaomiChange(SavedCard card, OemOperationReport.Operation operation,
+            boolean confirmed) throws Exception {
+        if (card != null && !confirmed && !XiaomiNfcController.consentAccepted(context)) {
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.XIAOMI_CONSENT);
+        }
+        try {
+            if (card != null && confirmed) XiaomiNfcController.rememberConsent(context);
+            XiaomiNfcController.change(context, card == null ? null : card.uid, operation);
+            CardSession.setActiveCardId(card == null ? null : card.id);
+        } catch (Throwable error) {
+            CardSession.clearActiveCard();
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
         }
     }
