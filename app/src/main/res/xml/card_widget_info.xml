@@ -1,0 +1,9 @@
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="140dp" android:minHeight="40dp"
+    android:targetCellWidth="2" android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical" android:minResizeWidth="140dp" android:minResizeHeight="40dp"
+    android:updatePeriodMillis="0" android:initialLayout="@layout/card_widget"
+    android:previewLayout="@layout/card_widget"
+    android:configure="dev.dunno.emula.CardWidgetConfigureActivity"
+    android:widgetFeatures="reconfigurable" android:widgetCategory="home_screen"
+    android:description="@string/quick_widget_description" />

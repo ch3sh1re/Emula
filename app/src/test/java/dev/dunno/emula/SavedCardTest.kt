@@ -27,10 +27,24 @@ class SavedCardTest {
     }
 
     @Test
-    fun `requires exactly four bytes`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            SavedCard("id", "Office", byteArrayOf(1, 2, 3))
+    fun `requires four seven or ten bytes`() {
+        for (length in listOf(0, 3, 5, 6, 8, 9, 11)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                SavedCard("id", "Office", ByteArray(length))
+            }
         }
     }
 
+    @Test
+    fun `long uids preserve every byte and differ from truncated versions`() {
+        for (length in listOf(7, 10)) {
+            val source = ByteArray(length) { (it + 1).toByte() }
+            val expected = source.copyOf()
+            val card = SavedCard("id", "Office", source)
+            source[length - 1] = 0
+            assertArrayEquals(expected, card.uid)
+            assertTrue(card.hasSameUid(expected))
+            assertFalse(card.hasSameUid(expected.copyOf(4)))
+        }
+    }
 }

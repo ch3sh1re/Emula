@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Emula Watch Probe</string>
+    <string name="title">Emula · NFC</string>
+    <string name="read_only_note">Диагностика часов. Проверка API и чтение конфигурации NFC.</string>
+    <string name="refresh">Проверить API</string>
+    <string name="read_config">Прочитать NFC</string>
+    <string name="checking">Проверка API…</string>
+    <string name="reading">Чтение NFC…</string>
+    <string name="checked">API проверены</string>
+    <string name="probe_complete">Чтение завершено</string>
+    <string name="probe_failed">Ошибка чтения; подробности ниже</string>
+    <string name="missing_permission">Для чтения NFC нужно разрешение через ADB</string>
+    <string name="no_nfc">NFC-адаптер недоступен</string>
+    <string name="nfc_disabled">NFC выключен в настройках часов</string>
+    <string name="missing_raw_api">Raw NCI API недоступен</string>
+    <string name="save_failed">Не удалось сохранить отчёт для ADB</string>
+    <string name="report_saved">Отчёт сохранён. Его можно забрать через ADB.</string>
+    <string name="grant_hint">Разрешение для кнопки «Прочитать NFC»:\nadb shell pm grant dev.dunno.emula.watchprobe android.permission.WRITE_SECURE_SETTINGS</string>
+</resources>

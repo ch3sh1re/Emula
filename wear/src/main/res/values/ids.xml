@@ -1,0 +1,6 @@
+<resources>
+    <item name="action_edit_card" type="id" />
+    <item name="action_delete_card" type="id" />
+    <item name="card_name_input" type="id" />
+    <item name="card_uid_input" type="id" />
+</resources>

@@ -11,7 +11,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 
-/** Firmware-scoped access to the CPH2747 global HCE Type-A configuration API. */
+/** Model-scoped access to the OnePlus global HCE Type-A configuration API. */
 @SuppressLint("PrivateApi")
 final class OnePlusVendorNfcController {
     private static final String VENDOR_ADAPTER_CLASS = "com.vendor.nfc.VendorNfcAdapter";
@@ -43,7 +43,8 @@ final class OnePlusVendorNfcController {
     static boolean isTargetDevice(int sdk, String manufacturer, String model) {
         return sdk >= 36
                 && "oneplus".equalsIgnoreCase(manufacturer)
-                && "cph2747".equalsIgnoreCase(model);
+                && ("cph2747".equalsIgnoreCase(model)
+                        || "cph2707".equalsIgnoreCase(model));
     }
 
     static Probe probe(Context context) {
@@ -125,7 +126,7 @@ final class OnePlusVendorNfcController {
     static void setCardEnabled(Context context, Api api, byte[] uid, boolean enable,
             OemOperationReport report) throws Exception {
         report.path = OemOperationReport.Path.ONEPLUS_VENDOR_HCE;
-        report.profile = "cts-type-4a / OnePlus ST54L vendor HCE";
+        report.profile = "cts-type-4a / OnePlus vendor HCE";
         report.atqa = OemOperationReport.copy(CTS_ATQA);
         report.sak = OemOperationReport.copy(CTS_SAK);
         report.uid = OemOperationReport.copy(uid);

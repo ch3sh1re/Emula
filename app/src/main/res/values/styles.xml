@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Emula.CardAction" parent="android:style/Theme.NoDisplay" />
+</resources>

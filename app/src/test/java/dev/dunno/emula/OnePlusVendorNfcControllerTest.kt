@@ -7,7 +7,7 @@ import org.junit.Test
 
 class OnePlusVendorNfcControllerTest {
     @Test
-    fun vendorPathIsLimitedToObservedCph2747FirmwareFamily() {
+    fun vendorPathPreservesCph2747Compatibility() {
         assertTrue(OnePlusVendorNfcController.isTargetDevice(36, "OnePlus", "CPH2747"))
         assertTrue(OnePlusVendorNfcController.isTargetDevice(37, "oneplus", "cph2747"))
 
@@ -15,6 +15,19 @@ class OnePlusVendorNfcControllerTest {
         assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "OnePlus", "CPH2745"))
         assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "OPPO", "CPH2747"))
         assertFalse(OnePlusVendorNfcController.isTargetDevice(36, null, null))
+    }
+
+    @Test
+    fun cph2707UsesVendorPathOnlyOnOnePlusAndroid16OrNewer() {
+        assertTrue(OnePlusVendorNfcController.isTargetDevice(36, "OnePlus", "CPH2707"))
+        assertTrue(OnePlusVendorNfcController.isTargetDevice(37, "oneplus", "cph2707"))
+
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(35, "OnePlus", "CPH2707"))
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "OPPO", "CPH2707"))
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "Google", "CPH2707"))
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(36, null, "CPH2707"))
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "OnePlus", null))
+        assertFalse(OnePlusVendorNfcController.isTargetDevice(36, "OnePlus", "CPH2709"))
     }
 
     @Test

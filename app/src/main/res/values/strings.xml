@@ -3,11 +3,17 @@
     <string name="app_name">Emula</string>
 
     <string name="screen_title">Cards</string>
-    <string name="screen_caption">Tap a card to activate or deactivate it</string>
+    <string name="screen_caption">Tap a card to activate or deactivate it.</string>
     <string name="add_card">Add card</string>
     <string name="app_menu">App menu</string>
+    <string name="search_cards">Search cards</string>
+    <string name="search_hint">Name or UID</string>
+    <string name="search_clear">Clear search</string>
+    <string name="search_close">Close search</string>
+    <string name="search_no_results">No cards found</string>
+    <string name="search_active_card">Active: %1$s\nUID %2$s</string>
     <string name="copy_adb_command">Copy ADB command</string>
-    <string name="local_storage_note">Cards are stored on this device</string>
+    <string name="local_storage_note">Cards are stored on this device.</string>
     <string name="add_first_card">Add your first card</string>
     <string name="default_card_name">Card</string>
 
@@ -21,6 +27,28 @@
     <string name="menu_raw_mode">Raw mode</string>
     <string name="menu_nfc_diagnostics">NFC diagnostics</string>
     <string name="menu_privacy_policy">Privacy policy</string>
+    <string name="menu_import_csv">Import CSV</string>
+    <string name="menu_export_csv">Export CSV</string>
+    <string name="csv_export_title">Export cards</string>
+    <string name="csv_save_file">Save CSV file</string>
+    <string name="csv_share_file">Share CSV file</string>
+    <string name="csv_import_title">Import cards</string>
+    <string name="csv_reading">Reading CSV…</string>
+    <string name="csv_import_empty_message">Cards in file: %1$d.\n\nImport this file?</string>
+    <string name="csv_import_message">Cards in file: %1$d. Saved in Emula: %2$d.\n\nAdd keeps your existing cards and skips matching UIDs. Replace all removes the existing list and imports this file.</string>
+    <string name="csv_import_action">Import</string>
+    <string name="csv_add_action">Add</string>
+    <string name="csv_replace_action">Replace all</string>
+    <string name="csv_imported">Imported: %1$d. Skipped matching UIDs: %2$d.</string>
+    <string name="csv_disable_before_replace">Deactivating card before replacing the list…</string>
+    <string name="csv_error_title">CSV file</string>
+    <string name="csv_unreadable_file">Could not read this file. Choose a UTF-8 CSV file with the header name,uid and a name and HEX UID on each row.</string>
+    <string name="csv_picker_unavailable">No document picker is available on this device.</string>
+    <string name="csv_export_expired">The export is no longer available. Export your cards again.</string>
+    <string name="csv_export_failed">Could not export the cards. Try saving or sharing the CSV again.</string>
+    <string name="csv_share_unavailable">No app is available to share the CSV file.</string>
+    <string name="csv_import_failed">Could not save the imported cards.</string>
+    <string name="csv_saved">CSV file saved</string>
     <string name="browser_unavailable">No browser is available</string>
 
     <string name="raw_mode_dialog_title">Enable raw mode?</string>
@@ -56,18 +84,24 @@
     <string name="editor_edit_title">Edit card</string>
     <string name="editor_name_label">Name</string>
     <string name="editor_name_hint">For example, Office</string>
-    <string name="editor_uid_label">UID, 4 bytes</string>
+    <string name="editor_uid_label">UID</string>
+    <plurals name="editor_uid_bytes">
+        <item quantity="one">%1$d byte</item>
+        <item quantity="other">%1$d bytes</item>
+    </plurals>
+    <string name="editor_uid_byte_hint">Byte %1$d</string>
+    <string name="editor_uid_byte_number">#%1$d</string>
     <string name="editor_read_card">Read from card</string>
-    <string name="editor_read_card_hint">Hold a physical card near the back of your phone to read its UID.</string>
+    <string name="editor_read_card_hint">Reading a card automatically selects its UID length: 4, 7 or 10 bytes.</string>
     <string name="editor_hold_card">Hold card near phone…</string>
-    <string name="editor_hold_card_instruction">Hold the card near the back of your phone</string>
-    <string name="editor_name_required">Enter a card name</string>
-    <string name="editor_uid_required">Enter two hexadecimal digits for every byte</string>
+    <string name="editor_hold_card_instruction">Hold the card near the back of your phone.</string>
+    <string name="editor_name_required">Enter a card name.</string>
+    <string name="editor_uid_required">Enter two hexadecimal digits for every byte.</string>
     <string name="editor_card_saved">Card “%1$s” saved</string>
     <string name="progress_disable_edited_card">Deactivating the card being edited…</string>
     <string name="progress_disable_before_reading">Deactivating card before reading…</string>
     <string name="editor_reader_failed">Could not start card reading: %1$s</string>
-    <string name="editor_uid_length_error">A 4-byte UID is required. Received: %1$d</string>
+    <string name="editor_uid_length_error">Supported UID lengths: 4, 7 or 10 bytes. Received: %1$d.</string>
     <string name="editor_uid_read">UID read. Check the values and save the card.</string>
 
     <string name="progress_restore_standard_nfc">Restoring standard NFC…</string>
@@ -76,21 +110,16 @@
     <string name="card_active">Card “%1$s” is active</string>
     <string name="nfc_error">NFC error: %1$s</string>
     <string name="raw_nfc_error">Raw NFC error: %1$s</string>
-    <string name="permission_required_short">Grant the permission once through ADB</string>
-    <string name="permission_required">Emulation requires a one-time ADB permission grant</string>
+    <string name="permission_required_short">Grant the permission once through ADB.</string>
+    <string name="permission_required">Emulation requires a one-time ADB permission grant.</string>
     <string name="permission_dialog_title">Permission needed</string>
     <string name="permission_dialog_message">To activate cards, grant Emula permission once using ADB.\n\n1. Enable USB debugging on your phone.\n2. Connect it to a computer with ADB installed and accept the debugging prompt.\n3. Run this command on the computer:\n\n%1$s\n\nYou can keep Emula open. It will detect the permission automatically.</string>
-    <string name="enable_nfc_first">Turn on NFC first</string>
-    <string name="nfc_permission_snackbar">ADB permission required</string>
-    <string name="nfc_turn_on_snackbar">Turn on NFC first</string>
+    <string name="enable_nfc_first">Turn on NFC first.</string>
     <string name="no_compatible_nfc_interface">No compatible UID emulation interface found.</string>
     <string name="nfc_activation_failed">Card activation failed</string>
     <string name="nfc_failure_support_message">UID emulation depends on your phone and firmware. To help investigate this device, open NFC diagnostics and email the report to %1$s.\n\nInclude what happened and which reader you used, if known.</string>
     <string name="nfc_deactivation_failed">Card deactivation failed</string>
-    <string name="nfc_disabled_pending_restore">Turn on NFC to restore the controller configuration left by the previous session</string>
-    <string name="pending_restore_interface_unavailable">Could not restore the previous raw NFC configuration: the raw interface is unavailable</string>
-    <string name="nfc_reset_failed">Could not reset NFC: %1$s</string>
-    <string name="empty_cards_status">Add a card manually or read one over NFC</string>
+    <string name="empty_cards_status">Add a card manually or read one over NFC.</string>
     <string name="raw_mode_selected">Raw mode will be used for future card changes</string>
     <string name="standard_mode_selected">Standard mode will be used for future card changes</string>
     <string name="adb_command_copied">ADB command copied</string>
@@ -106,4 +135,36 @@
     <string name="diagnostics_email_address" translatable="false">dunn0dud3@gmail.com</string>
     <string name="uid_field_hint" translatable="false">00</string>
     <string name="privacy_policy_url" translatable="false">https://sites.google.com/view/emula-privacy-policy</string>
+    <string name="quick_pin_card">Add home screen shortcut</string>
+    <string name="quick_pin_unavailable">This launcher cannot add pinned shortcuts.</string>
+    <string name="quick_toggle_named">Activate or deactivate %1$s</string>
+    <string name="quick_card_removed">This card is no longer saved in Emula.</string>
+    <string name="quick_invalid_request">Open this card using an Emula shortcut, widget or Quick Settings tile.</string>
+    <string name="quick_finish_import">Finish or cancel the CSV import, then tap the card shortcut again.</string>
+    <string name="quick_choose_card">Choose a card</string>
+    <string name="quick_add_card_first">Add a card in Emula first.</string>
+    <string name="quick_open_emula">Open Emula</string>
+    <string name="quick_active">Active</string>
+    <string name="quick_inactive">Inactive</string>
+    <string name="quick_nfc_off">NFC is off</string>
+    <string name="quick_widget_label">Emula card</string>
+    <string name="quick_widget_description">Activate or deactivate a saved NFC card.</string>
+    <string name="quick_widget_configure">Card for this widget</string>
+    <string name="quick_widget_choose">Tap to choose a card</string>
+    <string name="quick_widget_active">Active · Tap to deactivate</string>
+    <string name="quick_widget_inactive">Tap to activate</string>
+    <string name="quick_add_tile">Add Quick Settings tile</string>
+    <string name="quick_tile_card">Card for Quick Settings</string>
+    <string name="quick_tile_card_saved">Quick Settings card selected</string>
+    <string name="quick_use_for_tile">Use in Quick Settings</string>
+    <string name="quick_tile_added">Emula is in Quick Settings</string>
+    <string name="quick_tile_add_help">Open Quick Settings, tap Edit and add the Emula tile.</string>
+    <string name="quick_tile_description">Emula: %1$s, %2$s</string>
+    <string name="background_channel">NFC card control</string>
+    <string name="background_working">Updating NFC…</string>
+    <string name="background_recovery">NFC needs restoration. Tap Deactivate to retry.</string>
+    <string name="background_stop">Deactivate</string>
+    <string name="background_approve_in_app">Open Emula to approve the NFC mode.</string>
+    <string name="background_busy">Finish the current card operation, then try again.</string>
+    <string name="background_unlock">Unlock the phone to activate a card.</string>
 </resources>

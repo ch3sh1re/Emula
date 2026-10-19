@@ -18,7 +18,7 @@ final class NfcActivationPolicy {
         if (cataloguedRawAvailable && (!modernApi || rawForced)) {
             return Path.CATALOG_RAW;
         }
-        if (modernApi) return Path.OEM;
+        if (modernApi && !(rawForced && rawApi)) return Path.OEM;
         if (!rawApi) return Path.UNSUPPORTED;
         if (experimentalAcceptedForBuild) return Path.EXPERIMENTAL_RAW;
         return activating ? Path.CONFIRM_EXPERIMENTAL_RAW : Path.UNSUPPORTED;

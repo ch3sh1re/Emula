@@ -9,8 +9,8 @@ internal class SavedCard(
     val uid: ByteArray = uid.copyOf()
 
     init {
-        require(uid.size == CardStore.UID_LENGTH) {
-            "UID must contain exactly four bytes"
+        require(UidCodec.isSupportedLength(uid.size)) {
+            "UID must contain 4, 7, or 10 bytes"
         }
     }
 

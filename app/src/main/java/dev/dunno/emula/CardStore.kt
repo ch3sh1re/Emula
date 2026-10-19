@@ -8,8 +8,6 @@ import org.json.JSONObject
 import java.util.UUID
 
 internal object CardStore {
-    const val UID_LENGTH = 4
-
     private const val FILE_NAME = "office_cards"
     private const val KEY_CARDS = "cards"
 
@@ -22,7 +20,7 @@ internal object CardStore {
                 for (index in 0 until array.length()) {
                     val item = array.getJSONObject(index)
                     val uid = Base64.decode(item.getString("uid"), Base64.NO_WRAP)
-                    if (uid.size != UID_LENGTH) continue
+                    if (!UidCodec.isSupportedLength(uid.size)) continue
                     add(
                         SavedCard(
                             id = item.getString("id"),
@@ -59,6 +57,11 @@ internal object CardStore {
     @JvmStatic
     fun delete(context: Context, id: String) {
         writeCards(context, CardCatalog.delete(getCards(context), id))
+    }
+
+    @JvmStatic
+    fun replaceAll(context: Context, cards: List<SavedCard>) {
+        writeCards(context, cards)
     }
 
     private fun writeCards(context: Context, cards: List<SavedCard>) {

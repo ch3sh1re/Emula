@@ -12,10 +12,27 @@ final class RawNciCodec {
     private RawNciCodec() {}
 
     static byte[] uidOnlyPayload(byte[] uid) {
-        if (uid == null || uid.length != CardStore.UID_LENGTH) {
-            throw new IllegalArgumentException("UID must contain exactly four bytes");
+        if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
+            throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
         }
-        return new byte[] {1, 0x33, 4, uid[0], uid[1], uid[2], uid[3]};
+        return nfcid1Payload(uid);
+    }
+
+    static byte[] legacyPayload(byte[] uid, byte bitFrameSdd, byte platformConfig,
+            byte selInfo, byte rats) {
+        // LA_BIT_FRAME_SDD is the profile's bit frame; the controller derives UID size
+        // and cascade levels from LA_NFCID1. Keep existing profile values for every size.
+        if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
+            throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
+        }
+        Map<Integer, byte[]> values = new LinkedHashMap<>();
+        values.put(0x85, new byte[] {0});
+        values.put(0x30, new byte[] {bitFrameSdd});
+        values.put(0x31, new byte[] {platformConfig});
+        values.put(0x32, new byte[] {selInfo});
+        values.put(0x33, uid);
+        values.put(0x58, new byte[] {rats});
+        return configPayload(values, 0x85, 0x30, 0x31, 0x32, 0x33, 0x58);
     }
 
     static byte[] nfcid1Payload(byte[] value) {

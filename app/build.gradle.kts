@@ -6,6 +6,8 @@ plugins {
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
+val motorolaStExperiment = providers.gradleProperty("emula.motorolaStExperiment")
+    .map(String::toBooleanStrict).getOrElse(false)
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.isFile) {
         keystorePropertiesFile.inputStream().use(::load)
@@ -29,8 +31,10 @@ android {
         applicationId = "dev.dunno.emula"
         minSdk = 35
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.0.9"
+        versionCode = 31
+        versionName = "1.0.11"
+        buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "false")
+        testInstrumentationRunner = "dev.dunno.emula.UidEditorTestInstrumentation"
     }
 
     signingConfigs {
@@ -48,10 +52,16 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", motorolaStExperiment.toString())
         }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
+        }
+        create("internalSt") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "true")
         }
     }
 
@@ -62,6 +72,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("internalSt")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(30)
+            output.versionName.set("1.0.11-motorola-st-test1")
+        }
     }
 }
 
