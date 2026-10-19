@@ -212,7 +212,7 @@ final class PhoneNfcRuntime {
                 case NO_NFC: case UNSUPPORTED: resource = R.string.no_compatible_nfc_interface; break;
                 case DISABLED: resource = R.string.enable_nfc_first; break;
                 case PERMISSION: resource = R.string.permission_required; break;
-                case CONSENT: case XIAOMI_CONSENT: resource = R.string.background_approve_in_app; break;
+                case CONSENT: resource = R.string.background_approve_in_app; break;
                 case MISSING: resource = R.string.quick_card_removed; break;
                 case CHOOSE: resource = R.string.quick_choose_card; break;
                 case BUSY: resource = R.string.background_busy; break;

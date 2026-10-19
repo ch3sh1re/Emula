@@ -12,7 +12,7 @@ card tap / startup restore / launcher shortcut / widget / Quick Settings tile
   -> BackgroundNfcService + PhoneNfcRuntime (one application-owned worker)
      -> PhoneNfcSession (resolve current record, toggle, initialize once)
      -> PhoneNfcBackend + NfcActivationPolicy (existing path selection)
-        -> XiaomiNfcController (explicit garnet/206 NXP transit-config trial)
+        -> XiaomiNfcController + XiaomiNxpConfig (garnet NXP compatibility path)
      -> OemNfcController (preferred API)
         -> OnePlusVendorNfcController (CPH2747/CPH2707 vendor HCE)
         -> MotorolaStNfcController (explicit experiment, off by default; pending restore)
@@ -225,19 +225,24 @@ Purpose: persist named 4-, 7-, or 10-byte UIDs and keep one process-local active
 - PhoneNfcBackend uses application context and the existing OEM/raw controllers.
   Recovery includes raw, OnePlus and ST snapshots. Raw recovery preferences commit
   before activation; primary/rollback evidence remains in RawOperationReport.
-- XiaomiNfcController is phone-only and accepts only the exact 2312DRA50G/garnet
-  Global 206 fingerprint on API 35. PhoneNfcBackend.useXiaomi keeps the Android OEM
-  path preferred, routes pending Xiaomi recovery before new writes, and requires
-  firmware-scoped XIAOMI_CONSENT through MainActivity.confirmExperimentalMode.
+- XiaomiNfcController is phone-only and accepts only 2312DRA50G/garnet_global on
+  API 35+, including Android 16 and newer. PhoneNfcBackend.useXiaomi keeps the
+  Android OEM path preferred unless raw mode is forced; raw mode on this model
+  uses NXP rather than generic raw NCI. Pending Xiaomi recovery takes precedence.
+  No Xiaomi-specific consent dialog or accepted-firmware preference is used.
   Optional Mi/NXP libraries are reflected, not bundled; service identity is read
-  only on Prepare report or a queued operation. The trial preserves firmware
-  CORE_CONF values except NFCID1/config-control. It replaces a persistent transit
+  only on Prepare report or a queued operation. XiaomiNxpConfig bounds the vendor
+  config read and validates CORE_CONF framing/counts/TLVs before changing only
+  NFCID1/config-control. It rejects duplicate/proprietary/malformed parameters.
+  Current firmware defaults come from /vendor/etc/libnfc-nxp.conf; the preserved
+  206 baseline is a fallback only for that exact fingerprint. It replaces a persistent transit
   override and requests defaults with setConfig(null), not an original-file snapshot.
   Recovery commits before writing. VendorCallGate bounds waiting without cancelling
   live Binder writes; a boot-scoped WriteLedger prevents a new process from competing
   with an interrupted call until reboot. NfcQuickAccessReceiver marks owned restart
   broadcasts so PhoneNfcRuntime checks final NFC state before invalidating a card.
-  XiaomiNfcControllerTest covers scope, payload, rollback, persistence, firmware
+  XiaomiNfcControllerTest and XiaomiNxpConfigTest cover scope, firmware data,
+  parser limits, payload, rollback, persistence, firmware
   changes, timeout fencing and process-death recovery. OemOperationReport records
   the trial and separate rollback without claiming RF/payment verification.
   See docs/features/xiaomi-garnet/release-trial.txt for evidence and remaining limits.

@@ -4,7 +4,7 @@ import java.util.List;
 
 /** Worker-owned phone session. Resolve IDs and toggle decisions only inside the shared queue. */
 final class PhoneNfcSession {
-    enum Reason { NO_NFC, DISABLED, PERMISSION, UNSUPPORTED, CONSENT, XIAOMI_CONSENT, MISSING, CHOOSE, BUSY, LOCKED, FAILED }
+    enum Reason { NO_NFC, DISABLED, PERMISSION, UNSUPPORTED, CONSENT, MISSING, CHOOSE, BUSY, LOCKED, FAILED }
 
     static final class Failure extends Exception {
         final Reason reason;

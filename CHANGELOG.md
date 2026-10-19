@@ -4,9 +4,11 @@
 
 ## 1.0.12 (32)
 
-- Offer an explicitly approved Xiaomi NXP compatibility trial only on Redmi
-  2312DRA50G / garnet Global OS2.0.206.0.VNRMIXM, after the Xiaomi chip-ID and NXP
-  firmware services respond. Other devices retain their existing activation paths.
+- Transparently select a Xiaomi NXP compatibility path for Redmi 2312DRA50G /
+  garnet_global on Android 15+, including Android 16 and newer, when the standard
+  OEM API is absent or raw mode is selected. Validate live chip/firmware services
+  and the current firmware CORE_CONF before writing; preserve unrelated parameters.
+  A stored baseline is used only for the exact previously analyzed Global 206 build.
 - Retain recovery before changing the transit configuration, request firmware
   defaults on stop/failure/startup recovery, and keep failed resets pending.
   Bound vendor-call waits and prevent overlapping calls after timeout or process
