@@ -4,6 +4,17 @@
 
 ## 1.0.13 (33)
 
+- Send the saved phone catalog to a paired watch over secure local Bluetooth.
+  The watch receives only while Receive from phone is open. Append by UID,
+  retain existing watch names/IDs, acknowledge durable storage, and never activate
+  NFC as a result of receiving cards. Retry, cancellation and timeout are bounded.
+- Show card counts and short Add cards / Replace list explanations during CSV
+  import, without a preview of card names.
+- Use 48 dp card-menu buttons, an explicit Selected for Quick Settings state and
+  a separate deletion group.
+- Share the same dialog styling for deletion, errors and ADB instructions, with
+  scrollable content and actions that accommodate large text.
+- Increase the Name placeholder contrast.
 - Present CSV save/share choices as equal flat rows with leading icons and touch
   feedback, removing the almost identical button/dialog fills and native shadows.
   Preserve accessible button semantics, 56 dp minimum targets, scalable text and

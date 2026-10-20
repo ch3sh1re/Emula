@@ -14,6 +14,11 @@ in a change, then follow their callers rather than reading an entire controller.
 - `CardCsv`, `CardImport`, `CardTransfer`, `CardReadCancellation`,
   `CardExportProvider`: bounded parsing, append/replace, file transfer, cancellation,
   and immutable share snapshots. `AppDialogs` owns common phone dialogs.
+- `WatchCardSender` owns explicit send-all, the CONNECT permission and paired-device
+  chooser. `LocalWatchLink` uses cancellable secure RFCOMM with a 90-second deadline.
+  `WatchCardPacket` validates bounded batches and receipts, and plans append by UID.
+  `CardStore.appendReceived` saves atomically without changing existing cards or NFC
+  state. JVM codec/merge tests and Android isolated-storage checks own these rules.
 
 Pure behavior lives in the corresponding `app/src/test/` classes. Android checks
 in `app/src/androidTest/` cover input connections, isolated storage, file sharing,
@@ -75,8 +80,11 @@ see [compatibility.md](compatibility.md).
 - `WatchNfcSessionTest` covers transaction ordering; `WatchFlowInstrumentation`
   exercises manual CRUD on an emulator without NFC.
 - `wear-diagnostics/`: independent GET-only probe; no activation controller.
-- Wear Gradle sync tasks copy explicitly selected sources from `app/`. Phone CSV
-  and launcher classes are excluded. Phone/watch synchronization is not implemented.
+- Wear Gradle sync tasks copy explicitly selected sources from `app/`, including
+  LocalWatchLink and WatchCardPacket. Phone CSV and launcher classes are excluded.
+  WatchActivity receives only on its foreground Receive screen; cancellation,
+  backgrounding and timeout close the socket. Physical Bluetooth interoperability
+  still needs confirmation. See [watch-transfer.md](watch-transfer.md).
 - Each module's `build.gradle.kts` defines packages, SDKs, variants, and optional
   signing. The Gradle distribution/checksum is pinned under `gradle/wrapper/`.
 

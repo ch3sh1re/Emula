@@ -20,6 +20,11 @@ feedback.
 
 ## Features
 
+- Send saved cards to a paired watch over direct encrypted Bluetooth. Open
+  Receive from phone on the watch, then Send all cards to watch on the phone.
+  Existing watch cards and names are kept; matching UIDs are skipped. This is a
+  manual transfer without a cloud relay. Both apps need Nearby devices access.
+  See [transfer behavior and verification limits](docs/watch-transfer.md).
 - Read an NFC-A card or enter a 4-, 7-, or 10-byte UID manually.
 - Save, name, edit, and search multiple cards locally.
 - Tap a card to activate it; tap again to restore ordinary NFC operation.

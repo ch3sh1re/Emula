@@ -1,4 +1,14 @@
 <resources>
+    <string name="receive_cards">Receive from phone</string>
+    <string name="receive_wait">Waiting for phone…\nIn Emula on your paired phone, choose Send all cards to watch. Keep both apps open. Bluetooth only.</string>
+    <string name="receive_note">Existing cards are kept. Matching UIDs are skipped. Receiving cards does not start or change emulation.</string>
+    <string name="receive_retry">Try again</string>
+    <string name="receive_done">Added: %1$d\nSkipped matching UIDs: %2$d</string>
+    <string name="receive_permission">Allow Nearby devices access to receive cards over Bluetooth.</string>
+    <string name="receive_bluetooth">Turn on Bluetooth, then try again.</string>
+    <string name="receive_failed">Could not complete the transfer. Check Bluetooth and try again from the phone. Repeating a transfer skips matching UIDs.</string>
+    <string name="receive_timeout">Waiting timed out. Tap Try again, then send cards from the phone.</string>
+    <string name="receive_stopped">Receiving stopped. Tap Try again to receive cards.</string>
     <string name="app_name">Emula</string>
     <string name="add_card">Add card</string>
     <string name="edit_card">Edit card</string>

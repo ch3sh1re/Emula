@@ -102,6 +102,7 @@ public final class MainActivity extends Activity {
     private static final int MENU_PIN_CARD = 9;
     private static final int MENU_ADD_TILE = 10;
     private static final int MENU_TILE_CARD = 11;
+    private static final int MENU_SEND_WATCH = 12;
     private static final long NFC_PROGRESS_STATUS_DELAY_MILLIS = 300;
     private static final long PERMISSION_CHECK_INTERVAL_MILLIS = 1_000;
     private static final long SNACKBAR_DURATION_MILLIS = 2_600;
@@ -113,6 +114,7 @@ public final class MainActivity extends Activity {
 
     private NfcAdapter adapter;
     private CardTransfer cardTransfer;
+    private WatchCardSender watchCardSender;
     private CardQuickActions quickActions;
     private PhoneNfcRuntime nfc;
     private Dialog nfcConsentDialog;
@@ -172,6 +174,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        watchCardSender = new WatchCardSender(this);
         if (savedInstanceState != null) {
             permissionPromptShown = savedInstanceState.getBoolean(STATE_PERMISSION_PROMPT_SHOWN);
             reopenPermissionDialog = savedInstanceState.getBoolean(STATE_PERMISSION_DIALOG_OPEN);
@@ -329,7 +332,14 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (watchCardSender != null) watchCardSender.permissionResult(requestCode, grantResults);
+    }
+
+    @Override
     protected void onDestroy() {
+        if (watchCardSender != null) watchCardSender.dispose();
         if (mainSearchOpen) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(searchBack);
         if (quickActions != null) quickActions.dispose();
         if (cardTransfer != null) cardTransfer.dispose();
@@ -1060,6 +1070,8 @@ public final class MainActivity extends Activity {
                 Menu.NONE, MENU_EXPORT_CSV, Menu.NONE, R.string.menu_export_csv)
                 .setEnabled(!CardStore.getCards(this).isEmpty());
         popup.getMenu().add(Menu.NONE, MENU_ADD_TILE, Menu.NONE, R.string.quick_add_tile);
+        popup.getMenu().add(Menu.NONE, MENU_SEND_WATCH, Menu.NONE, R.string.watch_send_title)
+                .setEnabled(!CardStore.getCards(this).isEmpty());
         popup.getMenu().add(Menu.NONE, MENU_TILE_CARD, Menu.NONE, R.string.quick_tile_card)
                 .setEnabled(!CardStore.getCards(this).isEmpty());
         popup.getMenu().add(
@@ -1080,6 +1092,8 @@ public final class MainActivity extends Activity {
                 cardTransfer.pickImport();
             } else if (item.getItemId() == MENU_EXPORT_CSV) {
                 cardTransfer.chooseExport();
+            } else if (item.getItemId() == MENU_SEND_WATCH) {
+                watchCardSender.sendAll();
             } else if (item.getItemId() == MENU_PRIVACY_POLICY) {
                 openExternalPage(R.string.privacy_policy_url);
             } else if (item.getItemId() == MENU_ADD_TILE) {

@@ -46,6 +46,10 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
         runTest("oldFourByteCardsSurviveNewSaves", this::oldFourByteCardsSurviveNewSaves);
         runTest("csvStorageIsAtomicAndPreservesExistingCards",
                 () -> CardTransferChecks.storage(getTargetContext()));
+        runTest("watchTransferAppendsWithoutChangingActiveCard", () -> {
+            try { CardTransferChecks.watchAppend(getTargetContext()); }
+            catch (Exception failure) { throw new AssertionError(failure); }
+        }, false);
         runTest("csvExportProviderIsReadableAndReadOnly", () -> {
             try {
                 CardTransferChecks.provider(getTargetContext());
@@ -94,7 +98,7 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
         status.putString("id", "InstrumentationTestRunner");
         status.putString("class", getClass().getName());
         status.putString("test", name);
-        status.putInt("numtests", 15);
+        status.putInt("numtests", 16);
         status.putInt("current", ++current);
         sendStatus(1, status);
         AtomicReference<Throwable> failure = new AtomicReference<>();

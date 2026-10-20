@@ -1,4 +1,18 @@
 <resources>
+    <string name="watch_send_title">Send all cards to watch</string>
+    <string name="watch_send_choose">On your watch, open Emula → Receive from phone. Choose the paired watch below. Transfers use Bluetooth only.</string>
+    <string name="watch_send_paired">Paired Bluetooth device</string>
+    <string name="watch_send_device">Bluetooth device</string>
+    <string name="watch_send_empty">Save a card before sending cards to a watch.</string>
+    <string name="watch_send_permission">Allow Nearby devices access to send cards over Bluetooth.</string>
+    <string name="watch_send_bluetooth">Turn on Bluetooth, then try again.</string>
+    <string name="watch_send_pair">Pair your watch with this phone in system settings, then try again.</string>
+    <string name="watch_send_wait">Cards to send: %1$d\nKeep Emula open on both devices. On the watch, open Receive from phone. Existing cards are kept; matching UIDs are skipped.</string>
+    <string name="watch_send_done">Added on watch: %1$d\nSkipped matching UIDs: %2$d\n\nNo cards were deleted or activated.</string>
+    <string name="watch_send_failed">Could not confirm delivery. Keep Emula → Receive from phone open on the paired watch, check Bluetooth and try again. Repeating a transfer skips matching UIDs.</string>
+    <string name="watch_send_timeout">Transfer timed out. Keep Emula → Receive from phone open on the paired watch and try again. Repeating a transfer skips matching UIDs.</string>
+    <string name="watch_send_choose_action">Choose device</string>
+    <string name="watch_send_limit">Transfer up to 2,000 cards at a time, with names up to 1,024 UTF-8 bytes and a total of 256 KiB. Shorten long names or reduce the list, then try again.</string>
     <!-- English is the default locale. Add translations in values-<language>/strings.xml. -->
     <string name="app_name">Emula</string>
 

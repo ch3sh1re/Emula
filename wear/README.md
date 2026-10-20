@@ -11,6 +11,14 @@ not card memory, keys, or APDU behavior.
 
 ## Controls
 
+- Receive from phone opens a temporary Bluetooth receiver. On the paired phone,
+  choose Send all cards to watch and select this watch the first time. Allow
+  Nearby devices on both devices and keep both apps open during transfer.
+  Only new UIDs are appended; existing names and cards remain unchanged.
+  Delivery is acknowledged after storage; retries skip already received UIDs.
+  This is direct encrypted RFCOMM, without a Google SDK or cloud relay.
+  The receiver closes on Cancel, backgrounding or a 90-second timeout.
+  Actual phone/watch Bluetooth interoperability still needs tester confirmation.
 - Tap a saved card to enable emulation; tap the active card again to stop.
 - Hold a card to edit its name and UID. Saving preserves the card ID.
 - Swipe left on a card to open deletion confirmation. Vertical movement remains
@@ -91,7 +99,9 @@ test. Run the JVM and lint checks described in
 [CONTRIBUTING.md](../CONTRIBUTING.md); a successful build does not establish hardware
 compatibility.
 
-## Deferred synchronization
+## Card transfer
 
-Phone-to-watch card transfer is intentionally deferred; this release has no Data
-Layer dependency, synchronization service, Bluetooth permissions, or network sync.
+Manual phone-to-watch append is implemented over direct Bluetooth. It requires
+Nearby devices access and both apps in the foreground. There is no Data Layer
+dependency, cloud relay or automatic catalog replication. See
+[transfer behavior and device-check limits](../docs/watch-transfer.md).

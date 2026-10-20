@@ -32,6 +32,8 @@ val syncWatchSources by tasks.registering(Sync::class) {
             "dev/dunno/emula/SavedCard.kt",
             "dev/dunno/emula/CardCatalog.kt",
             "dev/dunno/emula/CardStore.kt",
+            "dev/dunno/emula/WatchCardPacket.java",
+            "dev/dunno/emula/LocalWatchLink.java",
         )
     }
     into(layout.buildDirectory.dir("generated/sources/watchCore"))

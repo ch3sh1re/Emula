@@ -46,7 +46,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Manual cards: tap to toggle emulation, hold to edit, swipe left to delete. */
 public final class WatchActivity extends Activity {
-    private enum Screen { CARDS, EDITOR, DELETE, SETTINGS, SETUP, DIAGNOSTICS }
+    private enum Screen { CARDS, EDITOR, DELETE, SETTINGS, SETUP, DIAGNOSTICS, RECEIVE }
+    private static final int RECEIVE_PERMISSION = 0x5744;
+    private LocalWatchLink receiveLink;
+    private String receiveMessage = "";
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final int ACCENT = Color.rgb(141, 185, 255);
@@ -131,6 +134,7 @@ public final class WatchActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        cancelReceive();
         handler.removeCallbacks(permissionRefresh);
         super.onPause();
     }
@@ -197,6 +201,7 @@ public final class WatchActivity extends Activity {
             case SETTINGS: renderSettings(); break;
             case SETUP: renderSetup(); break;
             case DIAGNOSTICS: renderDiagnostics(); break;
+            case RECEIVE: renderReceive(); break;
             default: renderCards();
         }
         if (busy) addText(getString(R.string.busy), 13, ACCENT);
@@ -247,6 +252,7 @@ public final class WatchActivity extends Activity {
             });
         }
         button(getString(R.string.add_card), () -> openEditor(null));
+        button(getString(R.string.receive_cards), this::beginReceive);
         if (!hasPermission()) button(getString(R.string.setup), () -> navigate(Screen.SETUP));
         button(getString(R.string.settings), () -> navigate(Screen.SETTINGS));
     }
@@ -445,6 +451,7 @@ public final class WatchActivity extends Activity {
 
     private void navigate(Screen target) {
         if (busy) return;
+        if (screen == Screen.RECEIVE && target != Screen.RECEIVE) cancelReceive();
         screen = target;
         message = "";
         render();
@@ -455,6 +462,80 @@ public final class WatchActivity extends Activity {
         hideKeyboard();
         if (screen == Screen.CARDS) finish();
         else navigate(screen == Screen.DIAGNOSTICS ? Screen.SETTINGS : Screen.CARDS);
+    }
+
+    private void renderReceive() {
+        addText(getString(R.string.receive_cards), 18, Color.WHITE);
+        addText(receiveMessage.isEmpty() ? getString(R.string.receive_stopped) : receiveMessage,
+                14, Color.LTGRAY);
+        addText(getString(R.string.receive_note), 12, Color.LTGRAY);
+        if (receiveLink == null) button(getString(R.string.receive_retry), this::beginReceive);
+        button(getString(R.string.cancel), () -> navigate(Screen.CARDS));
+    }
+
+    private void beginReceive() {
+        if (busy || receiveLink != null) return;
+        screen = Screen.RECEIVE;
+        message = "";
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            receiveMessage = getString(R.string.receive_permission);
+            render();
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, RECEIVE_PERMISSION);
+            return;
+        }
+        startReceive();
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private void startReceive() {
+        try {
+            android.bluetooth.BluetoothManager manager = getSystemService(android.bluetooth.BluetoothManager.class);
+            android.bluetooth.BluetoothAdapter bluetooth = manager == null ? null : manager.getAdapter();
+            if (bluetooth == null || !bluetooth.isEnabled()) {
+                receiveMessage = getString(R.string.receive_bluetooth);
+                render();
+                return;
+            }
+            receiveMessage = getString(R.string.receive_wait);
+            receiveLink = LocalWatchLink.receive(bluetooth,
+                    cards -> CardStore.appendReceived(getApplicationContext(), cards), new LocalWatchLink.Callback() {
+                @Override public void complete(WatchCardPacket.Result result) {
+                    cancelReceive();
+                    if (isDestroyed() || isFinishing()) return;
+                    screen = Screen.CARDS;
+                    message = getString(R.string.receive_done, result.added, result.skipped);
+                    render();
+                }
+                @Override public void failed(boolean timeout) {
+                    cancelReceive();
+                    if (isDestroyed() || isFinishing()) return;
+                    receiveMessage = getString(timeout ? R.string.receive_timeout : R.string.receive_failed);
+                    render();
+                }
+            });
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            render();
+        } catch (SecurityException failure) {
+            receiveMessage = getString(R.string.receive_permission);
+            render();
+        }
+    }
+
+    private void cancelReceive() {
+        if (receiveLink != null) {
+            receiveLink.close();
+            receiveLink = null;
+            receiveMessage = getString(R.string.receive_stopped);
+            if (!busy) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == RECEIVE_PERMISSION && screen == Screen.RECEIVE) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startReceive();
+            else { receiveMessage = getString(R.string.receive_permission); render(); }
+        }
     }
 
     private interface Job { String run() throws Exception; }
