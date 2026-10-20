@@ -6,12 +6,34 @@
 local.properties
 *.iml
 
-# Signing material stays local; release APKs/AABs are retained in distribution/.
+# Signing material stays local.
 keystore.properties
 .signing/
 *.jks
 *.keystore
 *.p12
+*.pfx
+*.pem
+*.key
+.env
+.env.*
+
+# Local evidence, private material and release binaries.
+*.apk
+*.aab
+*.apks
+*.apkm
+*.log
+distribution/
+.agents/
+.codex/
+.aws/
+docs/history/
+diagnostics/
+captures/
+watch-evidence/
+nfc-diagnostics*.txt
+watch-nfc*.txt
 
 # Editor and operating-system temporary files.
 .DS_Store

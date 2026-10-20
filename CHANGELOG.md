@@ -60,7 +60,7 @@
   replacing the catalog. Validate the whole file before saving.
 - Cancel CSV reads on dismissal, replacement or Activity destruction; close input
   off the UI thread and notify the document provider while opening a file.
-- Preserve SAK/ATQA research and primary-source artifacts in docs/features/sak-atqa.
+- Investigate SAK/ATQA profiles separately; the current editor stores UIDs only.
 
 ## 1.0.10 (29)
 
