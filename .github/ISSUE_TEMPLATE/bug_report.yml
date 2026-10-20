@@ -1,0 +1,32 @@
+name: Bug or compatibility report
+description: Report an application bug or device/reader compatibility result.
+body:
+  - type: markdown
+    attributes:
+      value: Please redact card UIDs, serial numbers, and personal data from reports.
+  - type: input
+    id: version
+    attributes:
+      label: Emula version and installation source
+      placeholder: 'For example: 1.0.12 (32), Google Play'
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Exact device model and Android version/build
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Steps, expected result, and observed result
+      description: Include OEM/vendor/raw mode, UID length, and reader model/behavior if known.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics and restoration result
+      description: Include relevant errors and whether ordinary NFC works after stopping.
+      render: text

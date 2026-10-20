@@ -1,341 +1,113 @@
 # Emula
 
-Небольшое Android-приложение для проверки воспроизведения NFC-A UID длиной 4, 7 или 10 байт.
-Поддерживает несколько сохранённых карт.
+Read, save, and emulate NFC-A card UIDs on compatible Android devices, without root.
 
-Приложение полностью бесплатное: без рекламы, платных функций, покупок, подписок и донатов.
+Emula is free, with no ads, accounts, analytics, subscriptions, or cloud storage.
+Cards stay on the device. It reproduces the UID only: card memory, cryptographic
+keys, authentication, and protected application data are not copied.
 
-Приложение воспроизводит только UID. Оно не копирует память MIFARE, ключи, счётчики или
-криптографическую аутентификацию карты. Используйте его только с картами и считывателями,
-на тестирование которых у вас есть разрешение.
+[Google Play](https://play.google.com/store/apps/details?id=dev.dunno.emula) ·
+[Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
+[Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
-## Что умеет
+## Features
 
-- хранить несколько карт локально на телефоне;
-- добавлять UID длиной 4, 7 или 10 байт вручную или считывать его с приложенной NFC-A карты;
-- выбирать длину UID в редакторе; при чтении карты она определяется автоматически;
-- сохранять открытый редактор и введённый черновик при повороте экрана;
-- учитывать системные панели, жестовую навигацию и вырез экрана в обеих ориентациях;
-- редактировать и удалять карты через меню `⋮`;
-- искать карты по имени или фрагменту UID в основном списке и выборе карты для плитки;
-- включать карту нажатием на неё и возвращать стандартный NFC повторным нажатием;
-- переключать карты через shortcuts, ярлыки и виджеты рабочего стола и плитку Quick Settings;
-- при холодном запуске всегда возвращать стандартную конфигурацию NFC.
+- Read an NFC-A card or enter a 4-, 7-, or 10-byte UID manually.
+- Save, name, edit, and search multiple cards locally.
+- Tap a card to activate it; tap again to restore ordinary NFC operation.
+- Use launcher shortcuts, home screen widgets, and a Quick Settings tile on phones.
+- Import and export named UIDs as CSV through Android's file picker or sharing.
+- Collect NFC diagnostics for compatibility troubleshooting.
+- Use the standalone Wear OS app on the currently verified watch model.
 
-Выбранная карта намеренно не восстанавливается после перезапуска процесса, телефона или NFC.
-Сохранённые карты остаются в списке, но ни одна из них не активируется автоматически.
+Long UIDs can be stored and passed to the controller, but external-reader
+confirmation currently covers four-byte UIDs. Support depends on the device,
+firmware, and reader; an Android version or successful API call alone is not proof.
 
-При удержании значка Emula лаунчер показывает shortcuts первых четырёх карт.
-Отдельный ярлык добавляется через меню карты → Add home screen shortcut.
-Виджет Emula card добавляется из списка виджетов лаунчера; при размещении выбирается карта.
-Плитку можно добавить через меню приложения → Add Quick Settings tile.
-Она переключает последнюю выбранную карту; первый запуск без выбранной
-карты предлагает выбор. Удержание плитки позволяет выбрать другую карту.
-Выбрать цель плитки можно и через меню отдельной карты → Use in Quick Settings;
-это действие сохраняет выбор без запуска эмуляции.
-Поиск открывается лупой между `+` и меню; в выборе карты для плитки поле находится
-под заголовком. UID можно вводить с пробелами, двоеточиями или дефисами.
-[Поведение поиска и проверка](docs/features/search/README.md).
-Быстрое действие переключает карту в фоне. При активной карте появляется уведомление
-с кнопкой отключения. Повторное нажатие на ярлык, виджет или плитку отключает карту.
-Если нужны разрешение, выбор карты или подтверждение экспериментального режима,
-открывается Emula. Открытие приложения сохраняет текущую фоновую сессию.
-[Подробности](docs/features/quick-access/README.md),
-[фоновое управление](docs/features/background-control/README.md).
+## Requirements and setup
 
-На Moto G Stylus 5G (2024), `boston`, Android 15+ в Raw mode сначала пробуется
-экспериментальный ST vendor-метод. Если обычного OEM API нет, raw выбирается
-автоматически; при доступном OEM API ST используется только после выбора Raw mode.
-Исходная конфигурация сохраняется и проверяется при восстановлении. Прямой raw NCI
-остаётся резервным вариантом после ошибки до записи либо проверенного отката.
-Эмуляция внешним ридером и обычная работа NFC после отключения на этой модели
-пока не подтверждены. [Область действия и проверка](docs/features/motorola-auto/raw-mode-15-17.txt).
+- Android 15 / API 35 or newer.
+- Compatible NFC hardware and firmware; see the [device notes](docs/compatibility.md).
+- A one-time `WRITE_SECURE_SETTINGS` permission grant through ADB.
 
-В редакторе переключатель `4 / 7 / 10 bytes` расположен перед полями UID. Байты
-показаны одинаковыми ячейками с номерами: 4 — в одну строку, 7 — рядами 4+3,
-10 — рядами 5+5. Каждый ряд центрирован. По нажатию заполненный байт выделяется
-целиком для замены. Переключение длины сохраняет поля и фокус, чтобы клавиатура
-не переключалась временно на режим ввода имени.
-Поля байтов используют обычный текстовый ввод с запросом латинской клавиатуры
-без подсказок; редактор исключён из автозаполнения учётных данных.
-При очистке ячейки активный байт переключается влево, пропуская пустые ячейки.
-Курсор встаёт в конец предыдущего байта без выделения, чтобы продолжать удаление
-по одному символу. Удаление из уже пустой ячейки также продолжается влево.
-Вся область UID использует одно соединение с клавиатурой: переход между байтами
-меняет подсветку и позицию ввода, сохраняя обработчик удерживаемой клавиши удаления.
-Область UID всегда занимает два ряда, поэтому кнопка чтения и высота окна
-сохраняют положение при смене длины; четыре байта центрированы в этой области.
-Изменение длины сохраняет введённые байты в текущем черновике, включая временно скрытые;
-выбранная длина и весь черновик переживают поворот экрана. Новая карта по умолчанию
-имеет 4 байта. Формат сохранённых карт не изменился.
+Install Emula, enable USB or wireless debugging, connect ADB, and run:
 
-Контракт [Android OEM API](https://android.googlesource.com/platform/packages/modules/Nfc/+/android-16.0.0_r4/framework/java/android/nfc/NfcOemExtension.java)
-допускает UID длиной 4, 7 или 10 байт. OEM- и raw-пути передают UID полностью,
-без обрезания; параметры существующих профилей сохранены. Практические подтверждения
-совместимости ниже относятся к четырёхбайтовым UID: для 7 и 10 байт ещё нужна проверка
-на конкретном телефоне и внешнем считывателе.
+```sh
+adb shell pm grant dev.dunno.emula android.permission.WRITE_SECURE_SETTINGS
+```
 
-## Импорт и экспорт CSV
+The app detects the permission without a restart. For the debug phone build, use
+`dev.dunno.emula.debug` instead. Wear OS installation and package names are described
+in the [watch guide](wear/README.md).
 
-В меню приложения доступны Import CSV и Export CSV. Экспорт можно сохранить
-в выбранный системный файл или отправить через «Поделиться». CSV также можно
-открыть в Emula или передать в приложение через системный шаринг.
+Add or scan a card, save it, and tap it to activate. Tap the active card again to
+stop. Switching cards replaces the active UID. Emula does not automatically
+reactivate a card after process restart, reboot, or NFC being switched off.
 
-Формат — UTF-8 с заголовком name,uid, запятой между колонками и UID из 8, 14
-или 20 HEX-символов без разделителей:
+Use Emula with cards and readers you own or are authorized to test. A system that
+checks card authentication or data beyond the UID may not accept UID emulation.
 
-~~~csv
-name,uid
-Office,01020304
-"Gym, entrance",04A1B2C3D4E5F6
-~~~
+## Build from source
 
-Перед импортом приложение проверяет весь файл и показывает подтверждение.
-Если карты уже есть, Add добавляет новые UID, сохраняя существующие карты,
-а Replace all заменяет список содержимым файла. Если список пуст, достаточно
-подтвердить Import. При замене активная карта сначала деактивируется.
+Use JDK 17 and Android SDK Platform 36. Install the SDK packages requested by Gradle
+if they are missing. Open the project in Android Studio, or set `ANDROID_HOME` to
+your SDK directory and run the checked-in Gradle wrapper:
 
-[Подробный формат и поведение](docs/features/csv/README.md).
-
-## Совместимость
-
-Приложение использует системный OEM-метод
-`NfcOemExtension.emulateNfcTechnologyATag()`. Он появился в Android 16 QPR2
-(`android-16.0.0_r4`, 25Q4, API 36.1) и также присутствует в Android 17.
-
-Исключение — OnePlus 15 CPH2747 на Android 16. Исследованная глобальная прошивка
-предоставляет отдельную системную библиотеку `nfcvendorlib` и метод
-`setHceTypeAConfig()`, который выполняет требуемую ST54L-последовательность внутри NFC-службы.
-На этой модели приложение предпочитает firmware-scoped vendor-путь с CTS Type-4A
-параметрами `ATQA 06 0C`, `SAK 20` и выбранным UID. Перед активацией исходное
-состояние системной access-card сохраняется; после деактивации, ошибки или следующего
-холодного запуска оно восстанавливается. Системный RF-field guard временно нейтрализуется,
-чтобы прошивка не отменила конфигурацию при первом поднесении стороннего считывателя.
-Активация четырёхбайтового UID через этот путь подтверждена внешним считывателем на
-OnePlus 15 CPH2747 с Android 16 / API 36. Этот же vendor-путь экспериментально
-включён для OnePlus CPH2707 на Android 16 / API 36+ при наличии библиотеки,
-метода и системного адаптера. Активация и восстановление на CPH2707 пока не
-подтверждены физическим устройством. На остальных моделях этот путь не выбирается;
-библиотека объявлена необязательной.
-
-Проверка совместимости выполняется по фактическому наличию метода, а не только по
-`SDK_INT`: Android 16 QPR2 по-прежнему сообщает основной API level 36, а производитель
-может отдельно обновить или перенести NFC-модуль. Первоначальный Android 16 и Android 16
-QPR1 без такого переноса не поддерживаются.
-
-Рабочий путь практически подтверждён на Pixel 8 Pro с Android 17 / SDK 37, сборка
-`CP2A.260805.005`, и Samsung Galaxy A16 с One UI 8.5 на базе Android 16 QPR2. На Samsung
-используется Type-4A профиль из CTS (`06 / 0C / 20`, RATS `40`), поскольку упрощённый
-профиль Pixel вызывал ошибку NFC-контроллера при активации. Единый CTS-профиль также был
-проверен на Pixel: контроллер видел внешнее RF-поле, но не активировал карту, поэтому для
-двух семейств сохранены разные параметры. Другие модели и прошивки требуют практической
-проверки: наличие метода не гарантирует, что конкретный NFC-контроллер примет конфигурацию.
-Профиль выбирается по `Build.MANUFACTURER`: для устройств Google используется проверенный
-профиль Pixel, для Samsung и пока не проверенных производителей — эталонный профиль CTS.
-Модель NFC-контроллера не используется, поскольку Android не предоставляет её приложению
-через стабильный системный API.
-
-На Android 15 / One UI 7 штатного метода эмуляции UID ещё нет. В меню приложения `⋮`
-добавлена безопасная диагностика старого raw NCI API: она отправляет только
-`CORE_GET_CONFIG` и не меняет UID или режим NFC. Для неё требуется то же разрешение
-`WRITE_SECURE_SETTINGS`, отдельного разрешения для raw-команд нет. Успешная диагностика
-подтверждает канал связи с контроллером, но сама по себе ещё не означает, что UID можно
-надёжно задать: старый NFC-стек повторно записывает listen-параметры при запуске polling.
-На Samsung с Android 15 приложение временно отключает poll/listen через публичный API
-управления discovery перед `CORE_SET_CONFIG`: One UI 7 блокирует старый hidden API
-`pausePolling`, а NXP-контроллер отклоняет изменение конфигурации при активном discovery.
-
-На Google, Samsung, OnePlus и Sony Xperia 1 VI XQ-EC72 без доступного OEM/vendor-метода приложение
-автоматически использует raw NCI при обычном нажатии карты. На проверенных Pixel, Samsung
-и Sony сохраняется прежний полный NFC-A профиль. Если vendor-путь OnePlus 15 CPH2747
-недоступен либо raw выбран вручную, raw fallback сначала пробует изменить только
-`LA_NFCID1 (0x33)`; если минимальный кандидат не проходит, остаётся прежний полный профиль.
-Приложение отправляет `CORE_SET_CONFIG`, затем читает
-`0x30/0x31/0x32/0x33/0x58` обратно и считает UID включённым только после совпадения `0x33`.
-При повторном нажатии отправляется конфигурация сброса. Если процесс завершился при активной
-карте, приложение запоминает необходимость сброса и выполняет её при следующем холодном
-запуске. Этот путь предназначен прежде всего для Android 15 и ранних Android 16; совместимость
-по-прежнему подтверждается ответом конкретного NFC-контроллера.
-
-На устройстве вне каталога обычный запуск не показывает ошибку совместимости и не мешает
-добавлять, редактировать или считывать UID. Если штатного метода нет, но raw NCI API доступен,
-первое нажатие карты предлагает явно попробовать экспериментальный raw-режим. Перед записью
-приложение выполняет read-only probe, сохраняет исходные значения параметров контроллера и при
-ошибке восстанавливает именно их. Успешное согласие запоминается только для текущего
-`Build.FINGERPRINT`, поэтому после обновления прошивки подтверждение запрашивается снова.
-Неизвестный аппарат без обоих интерфейсов сообщает об этом только после попытки активации.
-
-На новых Pixel, Samsung, OnePlus и Sony Xperia 1 VI XQ-EC72 raw можно выбрать глобально через верхнее меню
-`⋮` → **Raw-режим**. Флаг сохраняется после закрытия приложения и применяется ко всем
-последующим включениям карт. Если raw выключен, приложение использует штатный OEM API.
-На устройстве со штатным API включение флага требует отдельного подтверждения; выключение
-происходит сразу. Уже активная карта при смене флага не перезапускается автоматически.
-На устройствах из каталога без штатного метода raw включён автоматически и отмечен в меню как
-единственный доступный режим. Используется тот же проверенный профиль семейства устройства:
-упрощённый профиль Pixel для Google и CTS Type-4A для Samsung, OnePlus и поддерживаемой Xperia.
-На OnePlus и Xperia raw остаётся экспериментальным: сначала используется доступный OEM
-`pausePolling`, а при его отсутствии — публичное управление discovery из Android 15+.
-Исключение — OnePlus 15 CPH2747: на нём публичное управление discovery используется первым,
-чтобы перед записью явно отключить и poll, и listen; после отключения приложение выдерживает
-короткую паузу, пока NFC-стек применяет новую маршрутизацию.
-Контроллер и конкретная прошивка должны подтвердить поддержку ответом NCI и успешным чтением
-UID внешним считывателем. Диагностика сохраняет в памяти последние OEM и raw операции.
-Для OnePlus vendor-пути она показывает доступность библиотеки, Binder-адаптера и метода,
-принятые ATQA/SAK/UID, состояния RF-guard, snapshot и результат rollback. Для raw отображаются
-назначение операции, кандидат, polling, TX/RX, статусы и UID readback. История операций на диск
-не записывается. Для безопасного возврата временно хранится только снимок исходной
-конфигурации; он удаляется после успешного восстановления. Read-only
-проверка доступна и на устройствах вне каталога и читает значения
-`0x30/0x31/0x32/0x33/0x58/0x59/0x85` без записи контроллера.
-
-## Разработка
-
-Основная ветка — `main`. Каждая фича, исправление или изменение документации
-разрабатывается от актуальной `main` в отдельной ветке: `feature/<name>`,
-`fix/<name>` или `docs/<name>`. Изменения объединяются через MR в `main`
-(в Gitea — pull request), с описанием результата и выполненных проверок.
-Пока репозиторий в Gitea не подключён, рабочие ветки и коммиты сохраняются локально.
-
-Релизы отмечаются тегами `v<version>` на соответствующем коммите в `main`.
-Для версии 1.0.11 это `v1.0.11`; создавать отдельную ветку для каждой версии не нужно.
-Правила работы агентов находятся в [AGENTS.md](AGENTS.md).
-
-## Сборка и установка
-
-Откройте проект в Android Studio с JDK 17 либо соберите его из командной строки:
-
-```bash
-./gradlew assembleDebug
+```sh
+./gradlew --no-daemon --max-workers=2 :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-Debug-сборка использует отдельный application ID `dev.dunno.emula.debug`, поэтому может быть
-установлена рядом с release-версией.
-
-Скрипт `./install_and_grant.sh` устанавливает debug APK и выдаёт разрешение debug-пакету.
-Для release APK передайте путь и application ID явно:
-
-```bash
-./install_and_grant.sh app/build/outputs/apk/release/app-release.apk dev.dunno.emula
-```
-
-Для вызова OEM NFC API приложению один раз нужно выдать системное разрешение через ADB:
-
-```bash
 adb shell pm grant dev.dunno.emula.debug android.permission.WRITE_SECURE_SETTINGS
 ```
 
-Для release-пакета используйте его application ID: `dev.dunno.emula`.
+Debug builds need no private signing files. Additional modules:
 
-Разрешение сохраняется после перезагрузки телефона и обновления через `adb install -r`.
-После полного удаления приложения его потребуется выдать снова.
-
-При открытии без разрешения приложение показывает окно с инструкцией и командой ADB
-для установленного пакета. Команду можно скопировать кнопкой **Copy ADB command**; окно
-можно закрыть и продолжить добавлять или считывать карты. При повороте экрана открытое
-окно восстанавливается, а уже закрытая подсказка повторно не появляется.
-
-Перезапускать приложение после выдачи разрешения не нужно: пока оно открыто и разрешения
-нет, состояние проверяется раз в секунду. После обнаружения разрешения окно закрывается,
-кнопка **Copy ADB command** исчезает и появляется сообщение, что можно пробовать активировать
-карты. Проверка по таймеру прекращается; при возвращении в приложение разрешение проверяется сразу.
-
-## Использование
-
-1. Нажмите `+` и задайте название карты.
-2. Выберите длину 4, 7 или 10 байт и введите UID в hex либо нажмите **Считать с карты**
-   и приложите карту к задней стороне телефона.
-3. Сохраните карту.
-4. Нажмите на карту в списке, чтобы включить её. Активная карта отмечается светлой
-   рамкой и бейджем **Active** рядом с названием. Повторное нажатие восстанавливает стандартный NFC.
-5. Нажмите на активную карту повторно, чтобы вернуть стандартный NFC.
-
-Одновременно может быть активна только одна карта. При выборе другой карты она заменяет
-текущую конфигурацию.
-
-Интерфейс приложения по умолчанию английский. Для добавления перевода создайте
-`app/src/main/res/values-<language>/strings.xml` и добавьте код языка в `res/xml/locales_config.xml`.
-
-Основная модель, хранилище и обработка UID написаны на Kotlin. Быстрые unit-тесты запускаются
-командой:
-
-```bash
-./gradlew testDebugUnitTest
+```sh
+./gradlew --no-daemon --max-workers=2 :wear:assembleDebug :wear-diagnostics:assembleDebug
 ```
 
-Диагностические сообщения приложения выводятся только в debug-сборках. Release-сборка не пишет
-их в logcat; ошибки, важные пользователю, по-прежнему отображаются в интерфейсе.
+The watch diagnostics app performs read-only checks and is separate from the
+watch emulator. See [wear-diagnostics/README.md](wear-diagnostics/README.md).
 
-## Обращение при проблемах с эмуляцией
+To build your own signed release, copy `keystore.properties.example` to
+`keystore.properties` and point it to your own keystore. The original signing key
+and passwords are not part of this repository.
 
-Если активация завершилась ошибкой или для устройства не найден интерфейс эмуляции,
-приложение предлагает открыть **NFC diagnostics** и отправить отчёт на
-`dunn0dud3@gmail.com`. Если приложение показывает активную карту, но внешний считыватель
-её не видит, тот же отчёт доступен через меню `⋮` → **NFC diagnostics**.
-
-Кнопка **Email** после пояснения о составе отчёта открывает черновик в почтовом приложении.
-Пользователь проверяет содержимое и отправляет письмо сам. Отчёт содержит версию Emula,
-модель, прошивку и результаты NFC-операций; в нём могут быть UID карт. Если почтового
-приложения нет, можно скопировать отчёт и отправить его через веб-почту. В письмо стоит
-добавить описание проблемы и модель внешнего считывателя. Само открытие диагностики или
-письма не запускает новые NFC-команды. **Prepare report** выполняет отдельную проверку
-только для чтения; если она доступна, **Copy** и **Email** включаются после завершения
-попытки, даже при ошибке. На целевой прошивке Xiaomi отчёт также включает ответ сервисов
-идентификации NFC.
-
-Для Xiaomi 2312DRA50G / garnet_global на Android 15+ есть отдельный путь через NXP:
-он выбирается автоматически при отсутствии штатного OEM API или при выборе Raw mode.
-Дополнительного диалога согласия нет. Перед записью проверяются сервисы и базовый NFC-конфиг
-текущей прошивки; сохранённые параметры 2.0.206 используются только при точном совпадении
-этой прошивки. Остановка запрашивает штатные настройки прошивки, поэтому
-прежнее пользовательское переопределение NFC/транспортных настроек не сохраняется.
-Работа со считывателем и оплата после сброса пока не подтверждены на устройстве.
-Подробности и сценарий проверки: [Xiaomi trial](docs/features/xiaomi-garnet/release-trial.txt).
-
-## Подпись release-сборки
-
-Для Google Play используйте отдельный upload key. Создайте его интерактивно и сохраните
-keystore вне репозитория:
-
-```bash
-keytool -genkeypair -v \
-  -keystore /safe/path/emula-signing.p12 \
-  -storetype PKCS12 \
-  -alias emula \
-  -keyalg RSA -keysize 4096 -validity 10000
+```sh
+./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
-Скопируйте `keystore.properties.example` в `keystore.properties`, укажите абсолютный путь,
-alias и пароли, затем соберите подписанный bundle:
+## Verification and contributions
 
-```bash
-./gradlew bundleRelease
-jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
+```sh
+./gradlew --no-daemon --max-workers=2 \
+  :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
+  :wear:testDebugUnitTest :wear:lintDebug :wear:assembleDebug \
+  :wear-diagnostics:lintDebug :wear-diagnostics:assembleDebug
 ```
 
-`keystore.properties`, `.signing/`, `*.jks`, `*.p12` и `*.keystore` исключены из Git. Храните keystore и пароль
-минимум в двух независимых защищённых местах. При включённом Play App Signing этот ключ служит
-только для загрузки новых версий, а APK для пользователей подписывает ключом приложения Google.
+These checks do not prove hardware compatibility. NFC changes also require a
+scoped physical-device check and external-reader evidence. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and the [code map](docs/code-map.md).
 
-Полезный системный лог для проверки:
+Report a problem through the repository's issue tracker or the app's NFC
+diagnostics email action. Include the app version, model, firmware, activation
+path, and reader behavior. Review reports before posting: they can contain card
+UIDs and other device information. Nothing is sent automatically.
 
-```bash
-adb logcat -s NfcService Emula AndroidRuntime
-```
+## Repository history
 
-`emulateNfcACard: setConfig:true` означает включение сохранённого UID, а
-`setConfig:false` — возврат стандартной конфигурации NFC.
+This public copy retains the dates and ordering of the private development
+history while removing private reports, build output, signing artifacts, and
+internal task material. Commit IDs changed during that cleanup. The first retained
+snapshot is Emula 1.0.9, dated October 5, 2026. See [HISTORY.md](HISTORY.md).
 
-## Проверенный результат
+## License
 
-На указанном Pixel метод вернул успешный статус, а Flipper Zero прочитал тестовый UID
-`01 02 03 04` как ISO14443-4A NFCID1. На указанном Samsung эмулируемый UID был прочитан
-другим телефоном и принят офисным считывателем. ISO14443-4B использует PUPI, а FeliCa — IDm,
-поэтому они не должны показывать этот UID.
+Copyright (C) 2026 dunno.
 
-## Документация
+Emula's original code is licensed under the GNU General Public License, version 3
+only (`GPL-3.0-only`). See [LICENSE](LICENSE). Third-party components retain their
+own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- [Карта кода](docs/code-map.md): точки входа, контракты и проверки.
-- [Changelog](CHANGELOG.md): изменения по версиям.
-- [TODO](TODO.md): оставшиеся проверки и статус последнего релиза.
-- [Архив](docs/history/README.md): исторические промпты, отчёты и старые release-чеклисты.
+The application privacy policy is available
+[here](https://sites.google.com/view/emula-privacy-policy).

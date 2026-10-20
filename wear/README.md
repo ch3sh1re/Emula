@@ -30,8 +30,9 @@ by the earlier test app. Existing phone NFC profiles are unchanged.
 
 ## Packages and installation
 
-- Release: dev.dunno.emula, version 1.0.0-wear / code 10001, signed with the existing
-  phone upload key for the same Play listing. Wear version codes use the 10000 range.
+- Release: dev.dunno.emula, version 1.0.0-wear / code 10001. Official phone/watch
+  releases share a Play listing. Local release builds require your own signing key.
+  Wear version codes use the 10000 range.
 - Debug: dev.dunno.emula.watchtest. It updates the earlier watch test package and
   retains its cards and permissions. The release package has separate storage and
   needs its own permission grant; Android does not migrate data between packages.
@@ -86,11 +87,11 @@ uses the shared OEM controller and retains exact legacy snapshot restoration.
 
 WatchNfcSessionTest owns transaction/recovery behavior. WatchFlowInstrumentation
 exercises manual card CRUD only on a clean emulator without NFC; it is not a hardware
-test. No test or full lint suites were requested for this release preparation;
-Gradle may run its automatic release-critical lint task during packaging.
+test. Run the JVM and lint checks described in
+[CONTRIBUTING.md](../CONTRIBUTING.md); a successful build does not establish hardware
+compatibility.
 
 ## Deferred synchronization
 
-Branch feature/watch-card-sync contains docs/watch-card-sync-plan.md only.
 Phone-to-watch card transfer is intentionally deferred; this release has no Data
 Layer dependency, synchronization service, Bluetooth permissions, or network sync.
