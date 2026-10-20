@@ -10,6 +10,14 @@ keys, authentication, and protected application data are not copied.
 [Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
 [Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
+## Background
+
+Emula began with wanting to use an Android phone instead of carrying a physical
+NFC access card, without rooting the phone. The
+[original announcement on r/NFC](https://www.reddit.com/r/NFC/comments/1wvof7a/i_built_emula_nfc_uid_emulation_app_on_android_15/)
+describes how the project started and includes early compatibility reports and
+feedback.
+
 ## Features
 
 - Read an NFC-A card or enter a 4-, 7-, or 10-byte UID manually.
