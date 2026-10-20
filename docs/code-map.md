@@ -79,7 +79,5 @@ see [compatibility.md](compatibility.md).
   and launcher classes are excluded. Phone/watch synchronization is not implemented.
 - Each module's `build.gradle.kts` defines packages, SDKs, variants, and optional
   signing. The Gradle distribution/checksum is pinned under `gradle/wrapper/`.
-- `.github/workflows/android.yml`: debug builds, JVM tests, and lint, without
-  signing credentials or hardware NFC checks.
 
 Build commands and NFC invariants are in [../CONTRIBUTING.md](../CONTRIBUTING.md).
