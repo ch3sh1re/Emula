@@ -12,6 +12,7 @@ internal object CardStore {
     private const val KEY_CARDS = "cards"
 
     @JvmStatic
+    @Synchronized
     fun getCards(context: Context): List<SavedCard> {
         val serialized = preferences(context).getString(KEY_CARDS, "[]") ?: "[]"
         return try {
@@ -40,6 +41,7 @@ internal object CardStore {
     }
 
     @JvmStatic
+    @Synchronized
     fun save(context: Context, existing: SavedCard?, name: String?, uid: ByteArray): SavedCard {
         val normalizedName = name
             ?.trim()
@@ -55,13 +57,25 @@ internal object CardStore {
     }
 
     @JvmStatic
+    @Synchronized
     fun delete(context: Context, id: String) {
         writeCards(context, CardCatalog.delete(getCards(context), id))
     }
 
     @JvmStatic
+    @Synchronized
     fun replaceAll(context: Context, cards: List<SavedCard>) {
         writeCards(context, cards)
+    }
+
+    @JvmStatic
+    @Synchronized
+    fun appendReceived(context: Context, incoming: List<WatchCardPacket.Entry>): WatchCardPacket.Result {
+        val merge = WatchCardPacket.append(
+            getCards(context), incoming, context.getString(R.string.default_card_name),
+        )
+        if (merge.result.added > 0) writeCards(context, merge.cards)
+        return merge.result
     }
 
     private fun writeCards(context: Context, cards: List<SavedCard>) {

@@ -3,6 +3,7 @@ package dev.dunno.emula;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.nfc.NfcAdapter;
+import android.os.Build;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -25,12 +26,19 @@ final class LegacyNfcDiagnostics {
     private static final int CORE_GID = 0;
     private static final int CORE_GET_CONFIG_OID = 3;
     private static final int TRANSPORT_OK = 0;
-    private static final long RESPONSE_TIMEOUT_SECONDS = 4;
+    private static final long RESPONSE_TIMEOUT_MILLIS = 4000;
+    private static final long FAILED_RESPONSE_TIMEOUT_MILLIS = 1000;
     private static final int[] PARAMETER_IDS = {
             0x30, 0x31, 0x32, 0x33, 0x58, 0x59, 0x85
     };
 
     private LegacyNfcDiagnostics() {}
+
+    static boolean observesFailedResponse(String manufacturer, String model, String fingerprint) {
+        return "HONOR".equalsIgnoreCase(manufacturer) && "REA-NX9".equalsIgnoreCase(model)
+                && ("HONOR/REA-NX9/HNREA:15/HONORREA-N39/"
+                + "9.0.0.206C185E9R2P1:user/release-keys").equals(fingerprint);
+    }
 
     static boolean isRawNciApiAvailable(Context context) {
         try {
@@ -55,52 +63,7 @@ final class LegacyNfcDiagnostics {
         for (int id : PARAMETER_IDS) missing.add(id);
 
         try (DiagnosticSession session = DiagnosticSession.open(api)) {
-            boolean combinedTimedOut = false;
-            try {
-                Map<Integer, byte[]> combined = session.getConfig(
-                        buildGetPayload(PARAMETER_IDS), report, "GET_ALL_PARAMETERS");
-                values.putAll(combined);
-                missing.removeAll(combined.keySet());
-            } catch (Throwable combinedFailure) {
-                if (combinedFailure instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                    throw (InterruptedException) combinedFailure;
-                }
-                report.notes.add("Combined GET_CONFIG failed: "
-                        + describeFailure(combinedFailure));
-                RawOperationReport.RequestRecord request =
-                        report.requests.get(report.requests.size() - 1);
-                combinedTimedOut = request.frameworkStatus != null
-                        && request.frameworkStatus == TRANSPORT_OK
-                        && request.rx == null;
-            }
-
-            // A rejected batch often succeeds as individual reads. A transport timeout is not
-            // retried seven times because that would make the diagnostics dialog stall for 30s.
-            if (!combinedTimedOut) {
-                for (int id : new ArrayList<>(missing)) {
-                    try {
-                        Map<Integer, byte[]> single = session.getConfig(
-                                buildGetPayload(new int[] {id}), report,
-                                String.format(Locale.US, "GET_0x%02X", id));
-                        if (single.containsKey(id)) {
-                            values.put(id, single.get(id));
-                            missing.remove((Integer) id);
-                        } else {
-                            report.notes.add(String.format(Locale.US,
-                                    "GET_CONFIG omitted 0x%02X", id));
-                        }
-                    } catch (Throwable singleFailure) {
-                        if (singleFailure instanceof InterruptedException) {
-                            Thread.currentThread().interrupt();
-                            throw (InterruptedException) singleFailure;
-                        }
-                        report.notes.add(String.format(Locale.US,
-                                "GET 0x%02X failed: %s", id,
-                                describeFailure(singleFailure)));
-                    }
-                }
-            }
+            collectConfiguration(session::getConfig, report, values, missing);
         }
 
         report.stage = "COMPLETE";
@@ -119,6 +82,112 @@ final class LegacyNfcDiagnostics {
                 + ", parameters=" + values.size());
         return new ProbeResult(userSummary, detailedSummary,
                 "result=" + report.result + ", parameters=" + values.size(), values);
+    }
+
+    interface ConfigurationReader {
+        Map<Integer, byte[]> getConfig(byte[] payload, RawOperationReport report,
+                String stage) throws Exception;
+    }
+
+    /** Separate transport failures from controller rejections before attempting single reads. */
+    static void collectConfiguration(ConfigurationReader reader, RawOperationReport report,
+            Map<Integer, byte[]> values, List<Integer> missing) throws Exception {
+        try {
+            Map<Integer, byte[]> combined = reader.getConfig(
+                    buildGetPayload(PARAMETER_IDS), report, "GET_ALL_PARAMETERS");
+            values.putAll(combined);
+            missing.removeAll(combined.keySet());
+        } catch (Throwable combinedFailure) {
+            if (combinedFailure instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw (InterruptedException) combinedFailure;
+            }
+            report.notes.add("Combined GET_CONFIG failed: " + describeFailure(combinedFailure));
+            RawOperationReport.RequestRecord request = report.requests.get(report.requests.size() - 1);
+            if (transportUnavailable(request)) {
+                report.notes.add("Raw NCI transport did not complete successfully; "
+                        + "individual GET_CONFIG requests were skipped.");
+                return;
+            }
+        }
+
+        // A controller-rejected batch may succeed as individual reads. A framework FAILED
+        // without RX can itself be the service's 3 s timeout, as on HONOR REA-NX9.
+        for (int id : new ArrayList<>(missing)) {
+            try {
+                Map<Integer, byte[]> single = reader.getConfig(
+                        buildGetPayload(new int[] {id}), report,
+                        String.format(Locale.US, "GET_0x%02X", id));
+                if (single.containsKey(id)) {
+                    values.put(id, single.get(id));
+                    missing.remove((Integer) id);
+                } else {
+                    report.notes.add(String.format(Locale.US, "GET_CONFIG omitted 0x%02X", id));
+                }
+            } catch (Throwable singleFailure) {
+                if (singleFailure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw (InterruptedException) singleFailure;
+                }
+                report.notes.add(String.format(Locale.US, "GET 0x%02X failed: %s", id,
+                        describeFailure(singleFailure)));
+                RawOperationReport.RequestRecord request = report.requests.get(report.requests.size() - 1);
+                if (transportUnavailable(request)) {
+                    report.notes.add("Raw NCI transport did not complete successfully; "
+                            + "remaining GET_CONFIG requests were skipped.");
+                    return;
+                }
+            }
+        }
+    }
+
+    private static boolean transportUnavailable(RawOperationReport.RequestRecord request) {
+        return request.frameworkStatus != null && (request.frameworkStatus == 3
+                || (request.frameworkStatus == TRANSPORT_OK && request.rx == null));
+    }
+
+    interface ResponseReceiver {
+        byte[] await(long timeoutMillis) throws InterruptedException;
+    }
+
+    static Map<Integer, byte[]> receiveGetConfig(RawOperationReport report,
+            RawOperationReport.RequestRecord request, ResponseReceiver receiver,
+            boolean observeFailedResponse) throws InterruptedException {
+        boolean failed = request.frameworkStatus != TRANSPORT_OK;
+        if (failed) {
+            request.failure = "framework " + RawNciCodec.frameworkStatusName(request.frameworkStatus);
+            if (!observeFailedResponse || request.frameworkStatus != 3) {
+                throw new IllegalStateException(request.failure);
+            }
+            // This firmware holds the service monitor while awaiting a worker that needs
+            // the same monitor to deliver a successful native response. Keep the callback
+            // registered briefly after FAILED, but never turn that evidence into a snapshot.
+            report.notes.add("HONOR service timeout observation: waiting up to 1000 ms "
+                    + "after framework FAILED for a delayed GET_CONFIG response.");
+        }
+        byte[] response = receiver.await(failed
+                ? FAILED_RESPONSE_TIMEOUT_MILLIS : RESPONSE_TIMEOUT_MILLIS);
+        if (response != null) {
+            request.rx = Arrays.copyOf(response, response.length);
+            if (request.rx.length > 0) request.controllerStatus = request.rx[0] & 0xFF;
+        }
+        if (failed) {
+            report.notes.add(response == null
+                    ? "No GET_CONFIG response arrived during the additional observation window."
+                    : "GET_CONFIG response captured despite framework FAILED; evidence only, "
+                            + "excluded from the configuration snapshot. No individual GETs follow.");
+            throw new IllegalStateException(request.failure);
+        }
+        if (response == null) {
+            request.failure = "timeout waiting for controller response";
+            throw new IllegalStateException(request.failure);
+        }
+        try {
+            return RawNciCodec.parseGetConfigResponse(request.rx);
+        } catch (IllegalArgumentException malformed) {
+            request.failure = malformed.getMessage();
+            throw new IllegalStateException(request.failure, malformed);
+        }
     }
 
     private static String formatProbe(RawOperationReport report,
@@ -279,24 +348,10 @@ final class LegacyNfcDiagnostics {
                     throw new IllegalStateException(request.failure);
                 }
                 request.frameworkStatus = (Integer) result;
-                if (request.frameworkStatus != TRANSPORT_OK) {
-                    request.failure = "framework "
-                            + RawNciCodec.frameworkStatusName(request.frameworkStatus);
-                    throw new IllegalStateException(request.failure);
-                }
-                if (!responseReady.await(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    request.failure = "timeout waiting for controller response";
-                    throw new IllegalStateException(request.failure);
-                }
-                request.rx = responsePayload == null
-                        ? new byte[0] : Arrays.copyOf(responsePayload, responsePayload.length);
-                if (request.rx.length > 0) request.controllerStatus = request.rx[0] & 0xFF;
-                try {
-                    return RawNciCodec.parseGetConfigResponse(request.rx);
-                } catch (IllegalArgumentException malformed) {
-                    request.failure = malformed.getMessage();
-                    throw new IllegalStateException(request.failure, malformed);
-                }
+                return receiveGetConfig(report, request,
+                        timeout -> responseReady.await(timeout, TimeUnit.MILLISECONDS)
+                                ? responsePayload : null,
+                        observesFailedResponse(Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 if (request.failure == null) request.failure = "interrupted";

@@ -27,7 +27,11 @@ final class OemNfcController {
      * and an OEM may backport the NFC module independently from the platform release.
      */
     static boolean isUidEmulationSupported(Context context) {
-        return inspectCapabilities(context).isSupported();
+        return isUidEmulationSupported(context, true);
+    }
+
+    static boolean isUidEmulationSupported(Context context, boolean includeHonor) {
+        return inspectCapabilities(context).isSupported(includeHonor);
     }
 
     static Capabilities inspectCapabilities(Context context) {
@@ -45,7 +49,8 @@ final class OemNfcController {
         return new Capabilities(androidOemExtension, androidFailure, vendor,
                 OnePlusVendorNfcController.hasPendingRestore(context),
                 MotorolaStNfcController.probe(context),
-                MotorolaStNfcController.hasPendingRestore(context));
+                MotorolaStNfcController.hasPendingRestore(context),
+                HonorStNfcController.probe(context), HonorStNfcController.hasPendingRestore(context));
     }
 
     static String lastOperationForDisplay() {
@@ -123,6 +128,19 @@ final class OemNfcController {
                 }
             }
 
+            boolean honorPending = HonorStNfcController.hasPendingRestore(context);
+            if (honorPending || (HonorStNfcController.isTargetDevice()
+                    && !inspectCapabilities(context).androidOemExtension)) {
+                OemOperationReport st = report;
+                if (MotorolaStNfcController.tryFirst(enable,
+                        () -> HonorStNfcController.setCardEnabled(context, uid, enable, st),
+                        () -> HonorStNfcController.hasPendingRestore(context), st)) return;
+                report = new OemOperationReport(operation);
+                report.stAttempt = st;
+                lastOperationReport = report;
+                throw new HonorFallbackException(st.failure);
+            }
+
             if (OnePlusVendorNfcController.isTargetDevice()) {
                 try {
                     report.stage = "RESOLVE_ONEPLUS_VENDOR_HCE";
@@ -197,6 +215,12 @@ final class OemNfcController {
         }
     }
 
+    static final class HonorFallbackException extends Exception {
+        HonorFallbackException(String failure) {
+            super("HONOR ST candidate failed safely: " + failure);
+        }
+    }
+
     private static EmulationProfile resolveProfile() {
         // CTS is Android's reference configuration and the fallback for untested OEMs.
         // Google's NFC stack is the verified exception: with CTS values the tested Pixel
@@ -234,7 +258,7 @@ final class OemNfcController {
 
     private static UnsupportedOperationException unsupportedApi(Throwable cause) {
         return new UnsupportedOperationException(
-                "A newer Android version is required", cause);
+                "Android NFC-A tag emulation API is unavailable on this firmware", cause);
     }
 
     private static Method findMethod(Class<?> owner, String name, Class<?>[] parameterTypes)
@@ -285,27 +309,37 @@ final class OemNfcController {
         final boolean pendingOnePlusRestore;
         final MotorolaStNfcController.Probe motorolaSt;
         final boolean pendingMotorolaStRestore;
+        final MotorolaStNfcController.Probe honorSt;
+        final boolean pendingHonorStRestore;
 
         Capabilities(boolean androidOemExtension, String androidFailure,
                 OnePlusVendorNfcController.Probe onePlusVendor,
                 boolean pendingOnePlusRestore, MotorolaStNfcController.Probe motorolaSt,
-                boolean pendingMotorolaStRestore) {
+                boolean pendingMotorolaStRestore, MotorolaStNfcController.Probe honorSt,
+                boolean pendingHonorStRestore) {
             this.androidOemExtension = androidOemExtension;
             this.androidFailure = androidFailure;
             this.onePlusVendor = onePlusVendor;
             this.pendingOnePlusRestore = pendingOnePlusRestore;
             this.motorolaSt = motorolaSt;
             this.pendingMotorolaStRestore = pendingMotorolaStRestore;
+            this.honorSt = honorSt;
+            this.pendingHonorStRestore = pendingHonorStRestore;
         }
 
-        boolean isSupported() {
-            return motorolaSt.available || androidOemExtension || onePlusVendor.isAvailable();
+        boolean isSupported() { return isSupported(true); }
+
+        boolean isSupported(boolean includeHonor) {
+            return motorolaSt.available || androidOemExtension || onePlusVendor.isAvailable()
+                    || (includeHonor && honorSt.available);
         }
 
         String preferredPath() {
+            if (pendingHonorStRestore) return "HONOR_ST_RESTORE_REQUIRED";
             if (motorolaSt.available) return "MOTOROLA_ST_VENDOR_HCE";
             if (onePlusVendor.isAvailable()) return "ONEPLUS_VENDOR_HCE";
             if (androidOemExtension) return "ANDROID_OEM_EXTENSION";
+            if (honorSt.available) return "HONOR_ST_VENDOR_HCE";
             return "UNAVAILABLE";
         }
 
@@ -331,6 +365,11 @@ final class OemNfcController {
                     .append("Pending Motorola ST restore: ")
                     .append(pendingMotorolaStRestore ? "yes" : "no")
                     .append('\n')
+                    .append("HONOR ST vendor HCE: ")
+                    .append(!honorSt.targeted ? "not targeted"
+                            : honorSt.available ? "available (candidate; reader unverified)" : "unavailable")
+                    .append('\n').append("Pending HONOR ST restore: ")
+                    .append(pendingHonorStRestore ? "yes" : "no").append('\n')
                     .append("Preferred OEM path: ").append(preferredPath()).append('\n')
                     .append("Pending OnePlus restore: ")
                     .append(pendingOnePlusRestore ? "yes" : "no");
@@ -352,6 +391,9 @@ final class OemNfcController {
             if (detailed && !androidOemExtension && androidFailure != null) {
                 text.append('\n').append("Android OEM probe failure: ")
                         .append(androidFailure);
+            }
+            if (detailed && honorSt.targeted && honorSt.failure != null) {
+                text.append('\n').append("HONOR ST probe failure: ").append(honorSt.failure);
             }
             if (detailed && motorolaSt.targeted && motorolaSt.failure != null) {
                 text.append('\n').append("Motorola ST probe failure: ")

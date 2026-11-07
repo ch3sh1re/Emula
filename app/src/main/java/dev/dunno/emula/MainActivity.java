@@ -102,6 +102,8 @@ public final class MainActivity extends Activity {
     private static final int MENU_PIN_CARD = 9;
     private static final int MENU_ADD_TILE = 10;
     private static final int MENU_TILE_CARD = 11;
+    private static final int MENU_SEND_WATCH = 12;
+    private static final int MENU_WATCH_REPORT = 13;
     private static final long NFC_PROGRESS_STATUS_DELAY_MILLIS = 300;
     private static final long PERMISSION_CHECK_INTERVAL_MILLIS = 1_000;
     private static final long SNACKBAR_DURATION_MILLIS = 2_600;
@@ -113,6 +115,8 @@ public final class MainActivity extends Activity {
 
     private NfcAdapter adapter;
     private CardTransfer cardTransfer;
+    private WatchCardSender watchCardSender;
+    private WatchReportReceiver watchReportReceiver;
     private CardQuickActions quickActions;
     private PhoneNfcRuntime nfc;
     private Dialog nfcConsentDialog;
@@ -172,6 +176,8 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        watchCardSender = new WatchCardSender(this);
+        watchReportReceiver = new WatchReportReceiver(this);
         if (savedInstanceState != null) {
             permissionPromptShown = savedInstanceState.getBoolean(STATE_PERMISSION_PROMPT_SHOWN);
             reopenPermissionDialog = savedInstanceState.getBoolean(STATE_PERMISSION_DIALOG_OPEN);
@@ -267,6 +273,7 @@ public final class MainActivity extends Activity {
         resumeEditorReaderIfReady();
         showPermissionRequestIfNeeded();
         cardTransfer.onResume();
+        watchReportReceiver.onResume();
         quickActions.resume();
         requestNotificationPermissionIfNeeded();
     }
@@ -286,6 +293,7 @@ public final class MainActivity extends Activity {
         nfc.pauseUi(this);
         quickActions.pause();
         cardTransfer.onPause();
+        watchReportReceiver.onPause();
         if (isChangingConfigurations() && readerMode && readerForEditor) {
             editorReaderInterruptedForConfiguration = true;
         }
@@ -329,7 +337,16 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (watchCardSender != null) watchCardSender.permissionResult(requestCode, grantResults);
+        if (watchReportReceiver != null) watchReportReceiver.permissionResult(requestCode, grantResults);
+    }
+
+    @Override
     protected void onDestroy() {
+        if (watchCardSender != null) watchCardSender.dispose();
+        if (watchReportReceiver != null) watchReportReceiver.dispose();
         if (mainSearchOpen) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(searchBack);
         if (quickActions != null) quickActions.dispose();
         if (cardTransfer != null) cardTransfer.dispose();
@@ -1034,7 +1051,8 @@ public final class MainActivity extends Activity {
         boolean rawAvailable = LegacyNfcController.isExperimentalAvailable(this)
                 || XiaomiNfcController.isTargetDevice() || XiaomiNfcController.hasPendingRestore(this);
         if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget()
-                || MotorolaStNfcController.hasPendingRestore(this)) {
+                || MotorolaStNfcController.hasPendingRestore(this) || HonorStNfcController.isTargetDevice()
+                || HonorStNfcController.hasPendingRestore(this)) {
             rawAvailable = LegacyNfcDiagnostics.isRawNciApiAvailable(this);
         }
         if (rawAvailable) {
@@ -1044,7 +1062,8 @@ public final class MainActivity extends Activity {
             rawMode.setCheckable(true);
             rawMode.setChecked(rawOnly || isRawModeForced());
             rawMode.setEnabled(!rawOnly);
-            if (MotorolaStNfcController.hasPendingRestore(this)
+            if (HonorStNfcController.hasPendingRestore(this)
+                    || MotorolaStNfcController.hasPendingRestore(this)
                     || ((MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget())
                         && CardSession.getActiveCardId() != null)
                     || XiaomiNfcController.hasPendingRestore(this)
@@ -1060,6 +1079,9 @@ public final class MainActivity extends Activity {
                 Menu.NONE, MENU_EXPORT_CSV, Menu.NONE, R.string.menu_export_csv)
                 .setEnabled(!CardStore.getCards(this).isEmpty());
         popup.getMenu().add(Menu.NONE, MENU_ADD_TILE, Menu.NONE, R.string.quick_add_tile);
+        popup.getMenu().add(Menu.NONE, MENU_SEND_WATCH, Menu.NONE, R.string.watch_send_title)
+                .setEnabled(!CardStore.getCards(this).isEmpty());
+        popup.getMenu().add(Menu.NONE, MENU_WATCH_REPORT, Menu.NONE, R.string.watch_report_title);
         popup.getMenu().add(Menu.NONE, MENU_TILE_CARD, Menu.NONE, R.string.quick_tile_card)
                 .setEnabled(!CardStore.getCards(this).isEmpty());
         popup.getMenu().add(
@@ -1080,6 +1102,10 @@ public final class MainActivity extends Activity {
                 cardTransfer.pickImport();
             } else if (item.getItemId() == MENU_EXPORT_CSV) {
                 cardTransfer.chooseExport();
+            } else if (item.getItemId() == MENU_SEND_WATCH) {
+                watchCardSender.sendAll();
+            } else if (item.getItemId() == MENU_WATCH_REPORT) {
+                watchReportReceiver.open();
             } else if (item.getItemId() == MENU_PRIVACY_POLICY) {
                 openExternalPage(R.string.privacy_policy_url);
             } else if (item.getItemId() == MENU_ADD_TILE) {
@@ -1146,7 +1172,8 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
         boolean canProbe = (rawApi || XiaomiNfcController.isTargetDevice()
-                || XiaomiNfcController.hasPendingRestore(this))
+                || XiaomiNfcController.hasPendingRestore(this)
+                || "HONOR".equalsIgnoreCase(Build.MANUFACTURER))
                 && permission && adapter != null && adapter.isEnabled();
         Button probeButton = null;
         if (canProbe) {
@@ -1203,15 +1230,17 @@ public final class MainActivity extends Activity {
                 reportScroll.scrollTo(0, 0);
                 Context app = getApplicationContext();
                 nfc.submit(false, state -> {
-                    String xiaomi = XiaomiNfcController.capabilities(app, true);
+                    String vendorDetails = XiaomiNfcController.capabilities(app, true);
+                    String honor = HonorStNfcController.diagnostics(app);
+                    if (!honor.isEmpty()) vendorDetails += "\n\n" + honor;
                     try {
-                        if (!rawApi) return new String[] {xiaomi, xiaomi};
+                        if (!rawApi) return new String[] {vendorDetails, vendorDetails};
                         LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(app);
-                        return new String[] {probe.userSummary + "\n\n" + xiaomi,
-                                probe.detailedSummary + "\n\n" + xiaomi};
+                        return new String[] {probe.userSummary + "\n\n" + vendorDetails,
+                                probe.detailedSummary + "\n\n" + vendorDetails};
                     } catch (Throwable error) {
                         String message = getString(R.string.diagnostics_failed, safeMessage(error));
-                        return new String[] {message + "\n\n" + xiaomi, message + "\n\n" + xiaomi};
+                        return new String[] {message + "\n\n" + vendorDetails, message + "\n\n" + vendorDetails};
                     }
                 }, (result, failure) -> {
                     if (isDestroyed() || !dialog.isShowing()) return;

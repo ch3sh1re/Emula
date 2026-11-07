@@ -1,4 +1,35 @@
 <resources>
+    <string name="watch_report_title">Get watch diagnostics</string>
+    <string name="watch_report_receive">Receive report from watch</string>
+    <string name="watch_report_receive_hint">On the watch, choose Send report to phone first.</string>
+    <string name="watch_report_last">View last watch report</string>
+    <string name="watch_report_last_hint">Review, copy or share the report saved on this phone.</string>
+    <string name="watch_report_choose">On the watch, choose Send report to phone. Select that watch below. Keep both apps open; transfer uses Bluetooth only.</string>
+    <string name="watch_report_permission">Allow Nearby devices access to receive diagnostics over Bluetooth.</string>
+    <string name="watch_report_wait">Waiting for the watch report…\n\nKeep Emula → Send report to phone open on the selected watch. Both apps need diagnostics transfer support.</string>
+    <string name="watch_report_timeout">The transfer timed out. On the watch, choose Send report to phone and try again.</string>
+    <string name="watch_report_failed">Could not confirm delivery. Check Bluetooth, keep Send report to phone open on the watch and try again. Both apps need diagnostics transfer support. If the report already arrived, you can open View last watch report.</string>
+    <string name="watch_report_stopped">The transfer stopped when Emula left the foreground. Keep both apps open and try again.</string>
+    <string name="watch_report_preview">Watch NFC report</string>
+    <string name="watch_report_privacy">Saved privately on this phone. The report may contain card UIDs. Review it before copying or sharing. Sharing opens another app; you choose whether to send.</string>
+    <string name="watch_report_share">Share report</string>
+    <string name="watch_report_subject">Emula watch NFC diagnostics</string>
+    <string name="watch_report_share_unavailable">No app is available to share the report. You can copy it instead.</string>
+    <string name="watch_report_read_failed">The saved report could not be opened. Receive a new report from the watch.</string>
+    <string name="watch_send_title">Send all cards to watch</string>
+    <string name="watch_send_choose">On your watch, open Emula → Receive from phone. Choose the paired watch below. Transfers use Bluetooth only.</string>
+    <string name="watch_send_paired">Paired Bluetooth device</string>
+    <string name="watch_send_device">Bluetooth device</string>
+    <string name="watch_send_empty">Save a card before sending cards to a watch.</string>
+    <string name="watch_send_permission">Allow Nearby devices access to send cards over Bluetooth.</string>
+    <string name="watch_send_bluetooth">Turn on Bluetooth, then try again.</string>
+    <string name="watch_send_pair">Pair your watch with this phone in system settings, then try again.</string>
+    <string name="watch_send_wait">Cards to send: %1$d\nKeep Emula open on both devices. On the watch, open Receive from phone. Existing cards are kept; matching UIDs are skipped.</string>
+    <string name="watch_send_done">Added on watch: %1$d\nSkipped matching UIDs: %2$d\n\nNo cards were deleted or activated.</string>
+    <string name="watch_send_failed">Could not confirm delivery. Keep Emula → Receive from phone open on the paired watch, check Bluetooth and try again. Repeating a transfer skips matching UIDs.</string>
+    <string name="watch_send_timeout">Transfer timed out. Keep Emula → Receive from phone open on the paired watch and try again. Repeating a transfer skips matching UIDs.</string>
+    <string name="watch_send_choose_action">Choose device</string>
+    <string name="watch_send_limit">Transfer up to 2,000 cards at a time, with names up to 1,024 UTF-8 bytes and a total of 256 KiB. Shorten long names or reduce the list, then try again.</string>
     <!-- English is the default locale. Add translations in values-<language>/strings.xml. -->
     <string name="app_name">Emula</string>
 

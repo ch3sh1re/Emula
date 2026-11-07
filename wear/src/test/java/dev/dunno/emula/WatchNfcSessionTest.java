@@ -129,6 +129,43 @@ public class WatchNfcSessionTest {
         assertEquals("c1", f.pending.cardId);
     }
 
+    @Test public void oemFailureRestoresWithoutRawProbeAndClearsRecoveryOnlyAfterSuccess() {
+        Fixture f = new Fixture();
+        f.failActivate = true;
+        Exception failure = assertThrows(Exception.class,
+                () -> f.session("fw1").activate("c", UID, WatchNfcSession.Path.OEM, false));
+        assertEquals("controller failure", failure.getMessage());
+        assertEquals(List.of("save:false", "activate:OEM", "restore:OEM", "clear"), f.events);
+        assertNull(f.pending);
+    }
+
+    @Test public void oemRollbackFailureRetainsRecoveryAndBothErrorsUntilRetry() throws Exception {
+        Fixture f = new Fixture();
+        f.failActivate = true;
+        f.failRestore = true;
+        Exception failure = assertThrows(Exception.class,
+                () -> f.session("fw1").activate("c", UID, WatchNfcSession.Path.OEM, false));
+        assertEquals("controller failure", failure.getMessage());
+        assertEquals("rollback failure", failure.getSuppressed()[0].getMessage());
+        assertEquals(WatchNfcSession.Path.OEM, f.pending.path);
+        assertFalse(f.pending.active);
+        assertEquals(List.of("save:false", "activate:OEM", "restore:OEM"), f.events);
+        f.failRestore = false;
+        f.session("fw1").restore();
+        assertNull(f.pending);
+        assertEquals(List.of("save:false", "activate:OEM", "restore:OEM", "restore:OEM", "clear"), f.events);
+    }
+
+    @Test public void invalidUidNeverSavesOrCallsOemBackend() {
+        Fixture f = new Fixture();
+        for (byte[] uid : new byte[][] {null, new byte[0], new byte[3], new byte[5], new byte[8]}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> f.session("fw1").activate("c", uid, WatchNfcSession.Path.OEM, false));
+        }
+        assertTrue(f.events.isEmpty());
+        assertNull(f.pending);
+    }
+
     @Test public void watchDiscoveryOverrideRequiresFirmwareOptInAndLeavesPhonesUnchanged() {
         assertTrue(RawNfcDeviceCatalog.prefersWatchDiscoveryControl(37, true, true));
         assertFalse(RawNfcDeviceCatalog.prefersWatchDiscoveryControl(37, true, false));

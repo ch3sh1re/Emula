@@ -2,8 +2,143 @@
 
 ## Unreleased
 
+## Wear OS 1.0.4 (10005)
+
+- Offer an experimental raw NFC fallback on Android 15+ watches, including unknown
+  models, when the OEM API is absent. Require exact-firmware approval and a complete
+  saved baseline before writing; verify UID readback and exact restoration. Keep
+  failed recovery retryable and allow disabling the experiment in Settings.
+- Add Prepare report with a read-only NFC probe, capabilities and recovery details.
+  Sending from an error prepares the report automatically. Preserve the original
+  operation result separately from diagnostic results, including unavailable NFC.
+- Include the shared correction explaining an unavailable firmware OEM API instead
+  of incorrectly asking for a newer Android version. Raw reader behavior on the
+  reported SM-L315F and SM-L320 firmware still requires tester confirmation.
+
+## 1.0.21 (41)
+
+- Observe delayed GET_CONFIG callbacks for one additional second after framework
+  FAILED on HONOR REA-NX9 firmware 9.0.0.206C185E9R2P1. Preserve RX and controller
+  status alongside the original framework failure in diagnostic reports.
+- Keep these responses out of activation/restoration snapshots and stop further
+  GETs after the failed request. The supplied firmware has a service-monitor
+  conflict; delayed responses and UID emulation still require physical-device
+  verification. No new NFC writer, permissions or data collection are added.
+
+## 1.0.20 (40)
+
+- Exclude the HONOR REA-NX9 ST candidate when the firmware identifies an NXP
+  controller. Preserve pending restoration and existing OEM/raw safety checks.
+- Stop repeated diagnostic GETs after framework FAILED without a controller
+  response, including transport loss during individual reads. Keep fallback
+  for explicit batch rejections and retain partial configuration evidence.
+- Include the NFC service version, APK/library paths and read-only NXP
+  API/firmware evidence in prepared HONOR reports. Bound vendor-probe reporting
+  and prevent duplicate pending calls. HONOR UID emulation remains unverified.
+
+## 1.0.19 (39)
+
+- Add an experimental NXP transit path for Xiaomi 24117RN76E / tanzanite /
+  tanzanite_eea on Android 15+. Complete the sparse firmware configuration only
+  from a full live seven-parameter snapshot; persist it before writing, verify
+  activation and exact restoration by readback, and retain failed recovery.
+- Allow the existing consent-gated raw path if the tanzanite vendor path is
+  unavailable before any write. Never switch writers after a vendor setter.
+  Reader behavior on the reported firmware remains unverified.
+
+## 1.0.18 (38)
+
+- Use foreground Android discovery control for the experimental raw path on
+  vivo V2536A / Android 15+ instead of the OEM polling API that returns 0.
+  Background raw operations require opening Emula; firmware consent, configuration
+  snapshots and exact restoration still apply. Reader behavior needs device testing.
+- Try the HONOR ST vendor HCE API on REA-NX9 / HNREA with Android 15+ when the
+  standard OEM API is absent. Require a live ST service and complete read-only
+  configuration evidence; persist the original settings before writing, verify
+  activation and restore the saved settings on stop or failure. Reader behavior
+  on the reported firmware remains unverified.
+- Include HONOR chip hints, API/Binder resolution failures and restoration state
+  in prepared NFC reports. Replace the misleading Android-upgrade diagnosis with
+  an explanation that the firmware lacks the Android tag-emulation API.
+
+## Wear OS 1.0.3 (10004)
+
+- Use the same Emula launcher artwork as the phone app (two overlapping cards).
+- Show the launcher icon at 48×48 dp on a black splash screen during startup,
+  using the standard Wear OS splash screen lifecycle (Google Play WO-V15).
+
+## 1.0.17 (37)
+
+- Apply Xiaomi NXP transit UID changes through an unused trailing RF block when
+  the firmware skips unchanged CORE_CONF. Read the current main/RF files, preserve
+  calibration blocks and refuse unsupported layouts before writing.
+- Persist the firmware-default reset command before activation; apply it before
+  removing the transit override on stop or failure. Recover markers from older
+  builds and retain separate evidence for every vendor call and failed cleanup.
+- Keep the existing CORE_CONF path when the firmware always applies it. Physical
+  UID, reader acceptance and normal NFC after reset still need target verification.
+
+## 1.0.16 (36)
+
+- Receive NFC diagnostic reports explicitly offered on paired watches over direct
+  encrypted Bluetooth. Save the last report privately before acknowledging receipt;
+  offer review, copy, system sharing and reopening the last report.
+- Keep card transfer independent, without cloud delivery or automatic external
+  sending. Requires Wear 1.0.2 (10003) or newer for diagnostic transfer.
+- Include the shared garnet/diting Android parser fix from 1.0.15 (35).
+
+## Wear OS 1.0.2 (10003)
+
+- Show activation/restoration failures in a persistent dialog with an option to
+  send the cached diagnostic report to the paired phone over local Bluetooth.
+- Place progress, missing-permission and NFC-off messages below the selected
+  card, with actions for setup or NFC settings.
+- Offer a compact one-time setup prompt when the ADB grant is missing. Setup
+  shows instructions; it does not grant permission itself.
+- Require phone 1.0.16 (36) or newer to receive reports. NFC activation paths,
+  Android 15+ minimum and existing recovery rules remain unchanged. Physical
+  phone/watch diagnostic transfer still needs device verification.
+
+## 1.0.15 (35)
+
+- Fix Xiaomi NFC configuration parser initialization on Android: escape the
+  closing brace required by Android's ICU regex engine. The prior pattern passed
+  JVM tests but caused PatternSyntaxException followed by NoClassDefFoundError
+  on-device, blocking the shared garnet/diting path before configuration writes.
+- Add Android runtime checks for class initialization and 4/7/10-byte config
+  generation, preserved firmware parameters and malformed-input rejection.
+  Existing chip, firmware, model and recovery checks remain unchanged.
+
+## 1.0.14 (34)
+
+- Allow Xiaomi 12T Pro 22081212UG / diting / ditingp_global on Android 15+ to
+  try the existing Xiaomi/NXP configuration path when the standard OEM UID API
+  is unavailable or raw mode is selected. Keep the chip/firmware checks, current
+  firmware configuration validation, pending reset and failure recovery.
+- Use a model-neutral Xiaomi NXP profile label in diagnostics. The original
+  garnet scope and its exact-firmware fallback remain unchanged. Reader behavior
+  and ordinary NFC after resetting defaults on diting need device verification.
+
+## Wear OS 1.0.1 (10002)
+
+- Allow OEM UID emulation attempts on Android 15+ watches without a model whitelist.
+  NFC, permission, OEM API, UID validation and recovery checks still apply.
+- Update compatibility guidance and diagnostics to describe capability-based access.
+  External-reader evidence remains limited to SM-L355F with a four-byte UID.
+
 ## 1.0.13 (33)
 
+- Send the saved phone catalog to a paired watch over secure local Bluetooth.
+  The watch receives only while Receive from phone is open. Append by UID,
+  retain existing watch names/IDs, acknowledge durable storage, and never activate
+  NFC as a result of receiving cards. Retry, cancellation and timeout are bounded.
+- Show card counts and short Add cards / Replace list explanations during CSV
+  import, without a preview of card names.
+- Use 48 dp card-menu buttons, an explicit Selected for Quick Settings state and
+  a separate deletion group.
+- Share the same dialog styling for deletion, errors and ADB instructions, with
+  scrollable content and actions that accommodate large text.
+- Increase the Name placeholder contrast.
 - Present CSV save/share choices as equal flat rows with leading icons and touch
   feedback, removing the almost identical button/dialog fills and native shadows.
   Preserve accessible button semantics, 56 dp minimum targets, scalable text and
@@ -60,7 +195,7 @@
   replacing the catalog. Validate the whole file before saving.
 - Cancel CSV reads on dismissal, replacement or Activity destruction; close input
   off the UI thread and notify the document provider while opening a file.
-- Investigate SAK/ATQA profiles separately; the current editor stores UIDs only.
+- Preserve SAK/ATQA research and primary-source artifacts in docs/features/sak-atqa.
 
 ## 1.0.10 (29)
 
