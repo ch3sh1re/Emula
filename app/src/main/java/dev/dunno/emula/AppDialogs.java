@@ -136,6 +136,9 @@ final class AppDialogs {
             onCancel = cancelled; return this;
         }
         Builder addChoice(int label, int description, boolean destructive, Runnable selected) {
+            return addChoice(activity.getText(label), activity.getText(description), destructive, selected);
+        }
+        Builder addChoice(CharSequence label, CharSequence description, boolean destructive, Runnable selected) {
             choices.add(new Choice(label, description, destructive, selected));
             return this;
         }
@@ -204,8 +207,7 @@ final class AppDialogs {
                     null, rounded(activity, Color.WHITE, 12)));
             row.setClickable(true);
             row.setFocusable(true);
-            row.setContentDescription(activity.getText(choice.label) + ". "
-                    + activity.getText(choice.description));
+            row.setContentDescription(choice.label + ". " + choice.description);
             row.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                     super.onInitializeAccessibilityNodeInfo(host, info);
@@ -235,10 +237,10 @@ final class AppDialogs {
     }
 
     private static final class Choice {
-        final int label, description;
+        final CharSequence label, description;
         final boolean destructive;
         final Runnable selected;
-        Choice(int label, int description, boolean destructive, Runnable selected) {
+        Choice(CharSequence label, CharSequence description, boolean destructive, Runnable selected) {
             this.label = label; this.description = description;
             this.destructive = destructive; this.selected = selected;
         }

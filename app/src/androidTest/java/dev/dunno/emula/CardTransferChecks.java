@@ -27,6 +27,52 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Android storage/provider checks using isolated preferences and no Activity or NFC calls. */
 final class CardTransferChecks {
+    static void watchAppend(Context base) throws Exception {
+        String testFile = "watch_transfer_test_" + UUID.randomUUID();
+        SharedPreferences isolated = base.getSharedPreferences(testFile, Context.MODE_PRIVATE);
+        Context context = new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) { return isolated; }
+        };
+        String oldActive = CardSession.getActiveCardId();
+        try {
+            SavedCard existing = CardStore.save(context, null, "Watch name", new byte[]{1,2,3,4});
+            CardSession.setActiveCardId(existing.id);
+            List<WatchCardPacket.Entry> incoming = WatchCardPacket.read(new java.io.ByteArrayInputStream(
+                    WatchCardPacket.encode(List.of(
+                            new SavedCard("phone-a", "Phone name", existing.uid),
+                            new SavedCard("phone-b", "Long", new byte[]{0,1,2,3,4,5,6}),
+                            new SavedCard("phone-c", "Repeated", new byte[]{0,1,2,3,4,5,6})))));
+            WatchCardPacket.Result first = CardStore.appendReceived(context, incoming);
+            check(first.added == 1 && first.skipped == 2, "Received batch must deduplicate by UID");
+            List<SavedCard> cards = CardStore.getCards(context);
+            check(cards.size() == 2 && cards.get(0).id.equals(existing.id)
+                    && cards.get(0).name.equals("Watch name"), "Existing watch cards must remain unchanged");
+            WatchCardPacket.Result retry = CardStore.appendReceived(context, incoming);
+            check(retry.added == 0 && retry.skipped == 3, "Retry must not add cards");
+            check(CardStore.getCards(context).get(1).id.equals(cards.get(1).id), "Retry must retain received IDs");
+            check(existing.id.equals(CardSession.getActiveCardId()), "Receipt must not change active card state");
+            ExecutorService workers = Executors.newFixedThreadPool(2);
+            try {
+                CountDownLatch start = new CountDownLatch(1);
+                java.util.concurrent.Future<?> a = workers.submit(() -> {
+                    try { start.await(); CardStore.appendReceived(context,
+                            List.of(new WatchCardPacket.Entry("A", new byte[]{9,8,7,1}))); }
+                    catch (InterruptedException failure) { throw new AssertionError(failure); }
+                });
+                java.util.concurrent.Future<?> b = workers.submit(() -> {
+                    try { start.await(); CardStore.appendReceived(context,
+                            List.of(new WatchCardPacket.Entry("B", new byte[]{9,8,7,2}))); }
+                    catch (InterruptedException failure) { throw new AssertionError(failure); }
+                });
+                start.countDown(); a.get(5, TimeUnit.SECONDS); b.get(5, TimeUnit.SECONDS);
+                check(CardStore.getCards(context).size() == 4, "Concurrent imports must not lose either card");
+            } finally { workers.shutdownNow(); }
+        } finally {
+            if (oldActive == null) CardSession.clearActiveCard(); else CardSession.setActiveCardId(oldActive);
+            base.deleteSharedPreferences(testFile);
+        }
+    }
+
     static void storage(Context base) {
         String testFile = "csv_test_" + UUID.randomUUID();
         SharedPreferences isolated = base.getSharedPreferences(testFile, Context.MODE_PRIVATE);

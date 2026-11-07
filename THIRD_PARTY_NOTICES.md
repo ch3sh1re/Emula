@@ -9,6 +9,9 @@ their own licenses:
 - Google Material icon artwork used/adapted in `ic_*_24.xml` action icons:
   copyright Google, Apache License 2.0.
   [Upstream and license](https://github.com/google/material-design-icons).
+- AndroidX Core SplashScreen, fetched by Gradle for the Wear startup screen:
+  copyright The Android Open Source Project, Apache License 2.0.
+  [Upstream](https://android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/core/core-splashscreen/).
 
 The Apache License 2.0 text is in [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt).
 Dependencies fetched by Gradle retain their upstream licenses. Android/AOSP source

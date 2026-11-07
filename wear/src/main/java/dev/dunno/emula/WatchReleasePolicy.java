@@ -1,13 +1,8 @@
 package dev.dunno.emula;
 
-/** Scope backed by the SM-L355F OEM / four-byte UID reader confirmation. */
+/** Strict UID parsing for the Wear OS editor; device eligibility uses API capabilities. */
 final class WatchReleasePolicy {
     private WatchReleasePolicy() {}
-
-    static boolean supportsDevice(String manufacturer, String model) {
-        return "samsung".equalsIgnoreCase(manufacturer)
-                && "SM-L355F".equalsIgnoreCase(model);
-    }
 
     static byte[] parseUid(String input) {
         int length = input.length();

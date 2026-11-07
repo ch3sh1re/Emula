@@ -21,3 +21,12 @@ The [public Emula announcement](https://www.reddit.com/r/NFC/comments/1wvof7a/i_
 provides context outside Git. Commit dates are recorded metadata, not independent
 proof of first publication. Opening this repository does not change its GitHub
 publication date or reconstruct missing history.
+
+The November 2026 source refresh imports the accumulated phone 1.0.21 (41) and
+Wear 1.0.4-wear (10005) changes as one public commit, based on the existing public
+main branch. It includes the local card transfer previously available on the
+public feature branch. Private development history is not merged into this copy.
+Runtime and build sources match the development snapshot; public tests use a
+minimal synthetic NFC configuration and synthetic UIDs in place of device captures.
+Version numbers describe the source snapshot, not a claim of a Play rollout or
+reader-confirmed compatibility on additional devices.

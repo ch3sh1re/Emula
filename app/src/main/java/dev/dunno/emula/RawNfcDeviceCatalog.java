@@ -91,6 +91,19 @@ final class RawNfcDeviceCatalog {
                 && model.equalsIgnoreCase("CPH2747");
     }
 
+    /**
+     * V2536A on Android 16 exposes OEM polling methods but pause returns 0. Use public
+     * discovery control (available since Android 15) with a foreground Activity; never
+     * retry that OEM path in background.
+     * This selects polling control only: vivo still requires the uncatalogued raw opt-in.
+     */
+    static boolean requiresForegroundDiscoveryControl(
+            int sdkInt, String manufacturer, String model) {
+        return sdkInt >= 35
+                && "vivo".equalsIgnoreCase(manufacturer)
+                && "V2536A".equalsIgnoreCase(model);
+    }
+
     private static DeviceSpec find(String manufacturer, String model) {
         for (DeviceSpec device : SUPPORTED_DEVICES) {
             if (device.matches(manufacturer, model)) return device;

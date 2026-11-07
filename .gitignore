@@ -23,6 +23,12 @@ keystore.properties
 *.aab
 *.apks
 *.apkm
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.so
+*.zip
+*.dump
+*.hprof
 *.log
 distribution/
 .agents/

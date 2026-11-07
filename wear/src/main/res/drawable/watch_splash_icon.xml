@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- WO-V15: reuse the round launcher icon at exactly 48dp. -->
+    <item android:width="48dp" android:height="48dp"
+        android:gravity="center" android:drawable="@mipmap/ic_launcher" />
+</layer-list>

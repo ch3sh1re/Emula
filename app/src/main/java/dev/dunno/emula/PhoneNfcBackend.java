@@ -35,7 +35,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     @Override public boolean recoveryPending() {
         return legacy.getBoolean("pending_restore", false) || MotorolaStNfcController.hasPendingRestore(context)
                 || OnePlusVendorNfcController.hasPendingRestore(context)
-                || XiaomiNfcController.hasPendingRestore(context);
+                || XiaomiNfcController.hasPendingRestore(context)
+                || HonorStNfcController.hasPendingRestore(context);
     }
 
     private boolean permission() {
@@ -43,12 +44,16 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
-    private NfcActivationPolicy.Path path(boolean activating) {
-        if (MotorolaStNfcController.hasPendingRestore(context)
+    private NfcActivationPolicy.Path path(boolean activating) { return path(activating, false); }
+
+    private NfcActivationPolicy.Path path(boolean activating, boolean confirmedRawFallback) {
+        if (HonorStNfcController.hasPendingRestore(context)
+                || MotorolaStNfcController.hasPendingRestore(context)
                 || OnePlusVendorNfcController.hasPendingRestore(context)) {
             return NfcActivationPolicy.Path.OEM;
         }
-        return NfcActivationPolicy.choose(activating, OemNfcController.isUidEmulationSupported(context),
+        return NfcActivationPolicy.choose(activating,
+                OemNfcController.isUidEmulationSupported(context, !confirmedRawFallback),
                 LegacyNfcDiagnostics.isRawNciApiAvailable(context),
                 LegacyNfcController.isExperimentalAvailable(context),
                 settings.getBoolean("force_raw_mode", false),
@@ -135,7 +140,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             return adapter != null && adapter.isEnabled() && permission();
         }
         boolean vendorPending = OnePlusVendorNfcController.hasPendingRestore(context)
-                || MotorolaStNfcController.hasPendingRestore(context);
+                || MotorolaStNfcController.hasPendingRestore(context)
+                || HonorStNfcController.hasPendingRestore(context);
         if (vendorPending) requireReady();
         if (adapter == null || !adapter.isEnabled() || !permission()
                 || (!vendorPending && !OemNfcController.isUidEmulationSupported(context))) return false;
@@ -171,9 +177,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             return;
         }
         if (useXiaomi()) {
-            xiaomiChange(card, card == null ? OemOperationReport.Operation.DEACTIVATE
-                    : OemOperationReport.Operation.ACTIVATE);
-            return;
+            if (xiaomiChange(card, card == null ? OemOperationReport.Operation.DEACTIVATE
+                    : OemOperationReport.Operation.ACTIVATE)) return;
         }
         // A confirmed generic-raw fallback must not repeat the ST write/rollback
         // that led to its consent dialog. A pending ST snapshot always wins.
@@ -185,7 +190,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             }
             if (motorolaRawChange(card)) return;
         }
-        NfcActivationPolicy.Path path = path(card != null);
+        NfcActivationPolicy.Path path = path(card != null, confirmed);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) {
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.UNSUPPORTED);
         }
@@ -216,9 +221,11 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         } catch (Throwable error) {
             OemOperationReport report = OemNfcController.getLastOperationReport();
             OemOperationReport st = report == null ? null : report.stAttempt == null ? report : report.stAttempt;
-            if (st != null && st.path == OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE
+            if (st != null && (st.path == OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE
+                    || st.path == OemOperationReport.Path.HONOR_ST_VENDOR_HCE)
                     && Boolean.TRUE.equals(st.rollbackAttempted)) CardSession.clearActiveCard();
-            if (card != null && error instanceof OemNfcController.MotorolaFallbackException) {
+            if (card != null && (error instanceof OemNfcController.MotorolaFallbackException
+                    || error instanceof OemNfcController.HonorFallbackException)) {
                 NfcActivationPolicy.Path fallback = NfcActivationPolicy.choose(true, false,
                         LegacyNfcDiagnostics.isRawNciApiAvailable(context),
                         LegacyNfcController.isExperimentalAvailable(context), false,
@@ -238,11 +245,17 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
     }
 
-    private void xiaomiChange(SavedCard card, OemOperationReport.Operation operation) throws Exception {
+    private boolean xiaomiChange(SavedCard card, OemOperationReport.Operation operation) throws Exception {
         try {
             XiaomiNfcController.change(context, card == null ? null : card.uid, operation);
             CardSession.setActiveCardId(card == null ? null : card.id);
+            return true;
         } catch (Throwable error) {
+            OemOperationReport report = OemNfcController.getLastOperationReport();
+            if (XiaomiNfcController.permitsRawFallback(context, card != null, report)) {
+                report.notes.add("Tanzanite NXP candidate unavailable before any setter; normal raw consent policy applies.");
+                return false;
+            }
             CardSession.clearActiveCard();
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
         }

@@ -16,6 +16,7 @@ final class OemOperationReport {
         ANDROID_OEM_EXTENSION,
         ONEPLUS_VENDOR_HCE,
         MOTOROLA_ST_VENDOR_HCE,
+        HONOR_ST_VENDOR_HCE,
         XIAOMI_NXP_TRANSIT
     }
 
@@ -50,6 +51,19 @@ final class OemOperationReport {
     String vendorConfig;
     Integer vendorStatus;
     OemOperationReport vendorRollback;
+    final List<TransitCall> transitCalls = new ArrayList<>();
+
+    static final class TransitCall {
+        final String stage;
+        final String request;
+        Integer status;
+        String failure;
+
+        TransitCall(String stage, String request) {
+            this.stage = stage;
+            this.request = request;
+        }
+    }
 
     OemOperationReport(Operation operation) {
         this.operation = operation;
@@ -92,8 +106,9 @@ final class OemOperationReport {
             }
         }
 
-        if (path == Path.MOTOROLA_ST_VENDOR_HCE) {
-            text.append('\n').append("MOTOROLA ST VENDOR HCE\n");
+        if (path == Path.MOTOROLA_ST_VENDOR_HCE || path == Path.HONOR_ST_VENDOR_HCE) {
+            text.append('\n').append(path == Path.HONOR_ST_VENDOR_HCE
+                    ? "HONOR ST VENDOR HCE\n" : "MOTOROLA ST VENDOR HCE\n");
             append(text, "Snapshot", snapshotState);
             append(text, "Vendor call returned (void)", outcome(vendorCallSucceeded));
             append(text, "External reader", "not verified by this report");
@@ -106,6 +121,14 @@ final class OemOperationReport {
             append(text, "Recovery", snapshotState);
             append(text, "setConfig status", vendorStatus == null ? null : vendorStatus.toString());
             append(text, "setConfig request", vendorConfig);
+            for (int i = 0; i < transitCalls.size(); i++) {
+                TransitCall call = transitCalls.get(i);
+                text.append("\nTransit call ").append(i + 1).append('\n');
+                append(text, "Stage", call.stage);
+                append(text, "Request", call.request);
+                append(text, "Vendor status", call.status == null ? "no result" : call.status.toString());
+                append(text, "Failure", call.failure);
+            }
             append(text, "External reader / payment / original override", "not verified by this report");
         }
 
@@ -127,7 +150,8 @@ final class OemOperationReport {
                     .append(stRollback.format(detailed));
         }
         if (stAttempt != null) {
-            text.append('\n').append("PRECEDING MOTOROLA ST ATTEMPT\n")
+            text.append('\n').append(stAttempt.path == Path.HONOR_ST_VENDOR_HCE
+                    ? "PRECEDING HONOR ST ATTEMPT\n" : "PRECEDING MOTOROLA ST ATTEMPT\n")
                     .append(stAttempt.format(detailed));
         }
         if (vendorRollback != null) {
