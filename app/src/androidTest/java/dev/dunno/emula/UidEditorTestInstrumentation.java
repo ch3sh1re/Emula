@@ -28,10 +28,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class UidEditorTestInstrumentation extends Instrumentation {
     private int failures;
     private int current;
+    private boolean xiaomiOnly;
 
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        xiaomiOnly = arguments != null && Boolean.parseBoolean(arguments.getString("xiaomiOnly", "false"));
         start();
     }
 
@@ -46,6 +48,10 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
         runTest("oldFourByteCardsSurviveNewSaves", this::oldFourByteCardsSurviveNewSaves);
         runTest("csvStorageIsAtomicAndPreservesExistingCards",
                 () -> CardTransferChecks.storage(getTargetContext()));
+        runTest("watchTransferAppendsWithoutChangingActiveCard", () -> {
+            try { CardTransferChecks.watchAppend(getTargetContext()); }
+            catch (Exception failure) { throw new AssertionError(failure); }
+        }, false);
         runTest("csvExportProviderIsReadableAndReadOnly", () -> {
             try {
                 CardTransferChecks.provider(getTargetContext());
@@ -79,8 +85,14 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
             try { TileListeningChecks.refreshWhileListening(this); }
             catch (Exception failure) { throw new AssertionError(failure); }
         }, false);
+        runTest("xiaomiNxpConfigInitializesOnAndroid", XiaomiNxpConfigChecks::initialize);
+        runTest("xiaomiNxpConfigParsesAndPreservesFirmwareOnAndroid", XiaomiNxpConfigChecks::parseAndConfigure);
+        runTest("xiaomiRecoveryPersistsAndReadsLegacyMarkers",
+                () -> XiaomiNxpConfigChecks.recoveryStorage(getTargetContext()));
+        runTest("xiaomiTanzaniteSnapshotAndRecoveryOnAndroid",
+                () -> XiaomiNxpConfigChecks.tanzaniteSnapshot(getTargetContext()));
         Bundle result = new Bundle();
-        result.putString("stream", "\nUID editor, CSV, quick access and background control: "
+        result.putString("stream", "\nUID editor, CSV, quick access, background control and Xiaomi parser: "
                 + (current - failures) + "/" + current + " passed without NFC hardware calls.\n");
         finish(failures == 0 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }
@@ -90,11 +102,12 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
     }
 
     private void runTest(String name, Runnable test, boolean onMain) {
+        if (xiaomiOnly && !name.startsWith("xiaomi")) return;
         Bundle status = new Bundle();
         status.putString("id", "InstrumentationTestRunner");
         status.putString("class", getClass().getName());
         status.putString("test", name);
-        status.putInt("numtests", 15);
+        status.putInt("numtests", xiaomiOnly ? 4 : 20);
         status.putInt("current", ++current);
         sendStatus(1, status);
         AtomicReference<Throwable> failure = new AtomicReference<>();

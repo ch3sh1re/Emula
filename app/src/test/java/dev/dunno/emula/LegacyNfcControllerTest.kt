@@ -84,6 +84,41 @@ class LegacyNfcControllerTest {
     }
 
     @Test
+    fun vivoV2536aRequiresForegroundDiscoveryInsteadOfTheFailingOemPollingApi() {
+        assertTrue(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            35, "vivo", "V2536A"))
+        assertTrue(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            36, "vivo", "V2536A"))
+        assertTrue(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            37, "VIVO", "v2536a"))
+
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            34, "vivo", "V2536A"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            36, "vivo", "V2536"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            36, "OnePlus", "V2536A"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            36, null, null))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+            36, "OnePlus", "CPH2747"))
+    }
+
+    @Test
+    fun vivoPollingWorkaroundKeepsRawActivationUncataloguedAndRequiresFirmwareConsent() {
+        assertFalse(RawNfcDeviceCatalog.isSupported("vivo", "V2536A"))
+        assertFalse(RawNfcDeviceCatalog.prefersUidOnly("vivo", "V2536A"))
+        assertTrue(RawNfcDeviceCatalog.profileForExperimental("vivo", "V2536A") ==
+            RawNfcDeviceCatalog.Profile.CTS_TYPE_4A)
+        assertTrue(NfcActivationPolicy.choose(true, false, true,
+            RawNfcDeviceCatalog.isSupported("vivo", "V2536A"), false, false) ==
+            NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW)
+        assertTrue(NfcActivationPolicy.choose(true, false, true,
+            RawNfcDeviceCatalog.isSupported("vivo", "V2536A"), false, true) ==
+            NfcActivationPolicy.Path.EXPERIMENTAL_RAW)
+    }
+
+    @Test
     fun unverifiedOptInUsesCtsProfileAndPublicDiscoveryOnAndroid15Plus() {
         assertTrue(RawNfcDeviceCatalog.profileForExperimental("OPPO", "CPH2669") ==
             RawNfcDeviceCatalog.Profile.CTS_TYPE_4A)

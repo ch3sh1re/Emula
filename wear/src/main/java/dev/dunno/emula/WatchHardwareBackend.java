@@ -1,13 +1,12 @@
 package dev.dunno.emula;
 
 import android.app.Activity;
-import android.os.Build;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Arrays;
 
-/** OEM-only activation; retained raw support restores snapshots from older test builds. */
+/** OEM first, with explicit experimental raw activation and exact snapshot restoration. */
 final class WatchHardwareBackend implements WatchNfcSession.Backend {
     private static final int[] MODIFIED_PARAMETERS = {0x85, 0x30, 0x31, 0x32, 0x33, 0x58};
     private final Activity activity;
@@ -20,6 +19,12 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
 
     @Override
     public String snapshot() throws Exception {
+        if (WatchActivationPolicy.select(android.os.Build.VERSION.SDK_INT,
+                activity.getPackageManager().hasSystemFeature("android.hardware.type.watch"),
+                false, LegacyNfcDiagnostics.isRawNciApiAvailable(activity),
+                !"UNAVAILABLE".equals(LegacyNfcController.pollingMethod(activity))) == null) {
+            throw new IllegalStateException("Experimental NFC requires an Android 15+ watch with raw NFC and polling control");
+        }
         LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(activity);
         evidence.append("\nBEFORE RAW WRITE\n").append(probe.detailedSummary).append('\n');
         if (!LegacyNfcController.isCompleteExperimentalSnapshot(probe.configuration)) {
@@ -32,9 +37,19 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
 
     @Override
     public void activate(WatchNfcSession.Path path, byte[] uid, String snapshot) throws Exception {
-        if (path != WatchNfcSession.Path.OEM || !UidCodec.isSupportedLength(uid.length)
-                || !WatchReleasePolicy.supportsDevice(Build.MANUFACTURER, Build.MODEL)) {
-            throw new UnsupportedOperationException("Watch activation requires SM-L355F, OEM API, and a 4-, 7-, or 10-byte UID");
+        if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
+            throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
+        }
+        if (path == WatchNfcSession.Path.RAW) {
+            try {
+                LegacyNfcController.setCardEnabled(activity, uid, true,
+                        RawOperationReport.Operation.ACTIVATE, true,
+                        RawNciCodec.decodeConfiguration(snapshot));
+            } finally {
+                evidence.append("\nEXPERIMENTAL RAW ACTIVATION\n")
+                        .append(LegacyNfcController.lastOperationDetailed());
+            }
+            return;
         }
         try {
             OemNfcController.setCardEnabled(activity, uid, true);

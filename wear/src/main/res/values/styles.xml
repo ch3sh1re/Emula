@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Emula.Watch" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <style name="Theme.Emula.Watch.Starting" parent="Theme.SplashScreen.IconBackground">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/watch_splash_icon</item>
+        <!-- Match the launcher disc; an absent/black icon background lets Wear
+             enlarge the 48dp drawable to 60dp during the system splash. -->
+        <item name="windowSplashScreenIconBackgroundColor">@color/launcher_background</item>
+        <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+        <item name="postSplashScreenTheme">@style/Theme.Emula.Watch</item>
+    </style>
+</resources>

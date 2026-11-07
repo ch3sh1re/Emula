@@ -90,4 +90,93 @@ class XiaomiNxpConfigTest {
             Thread.interrupted()
         }
     }
+
+    private fun conditionalBaseline() = "NXP_SET_CONFIG_ALWAYS=0x00\n$baseline"
+    private val rf = "NXP_RF_CONF_BLK_1={20,02,05,01,A0,00,01,00}\n" +
+        "NXP_RF_CONF_BLK_12={20,02,05,01,A0,01,01,00}\n"
+
+    @Test fun conditionalCoreUsesATrailingRfBlockWithExactFirmwareDefaultsForReset() {
+        for (length in listOf(4, 7, 10)) {
+            val selected = ByteArray(length) { it.toByte() }
+            val plan = XiaomiNxpConfig.plan(conditionalBaseline(), rf, selected)
+            assertTrue(plan.activation.startsWith("NXP_RF_CONF_BLK_13="))
+            assertTrue(plan.reset.startsWith("NXP_RF_CONF_BLK_13="))
+            XiaomiNxpConfig.validateReset(plan.reset)
+            val restored = XiaomiNxpConfig.parse(plan.reset.replace("NXP_RF_CONF_BLK_13", "NXP_CORE_CONF"))
+            XiaomiNxpConfig.parse(baseline).forEach { (id, bytes) -> assertArrayEquals(bytes, restored[id]) }
+            val configured = XiaomiNxpConfig.parse(plan.activation.replace("NXP_RF_CONF_BLK_13", "NXP_CORE_CONF"))
+            assertArrayEquals(selected, configured[0x33])
+            assertArrayEquals(byteArrayOf(0), configured[0x85])
+        }
+    }
+
+    @Test fun firmwareThatAlwaysAppliesCoreKeepsTheExistingCarrier() {
+        val plan = XiaomiNxpConfig.plan("NXP_SET_CONFIG_ALWAYS=0x01\n$baseline", null, uid)
+        assertEquals(XiaomiNxpConfig.configuration(baseline, uid), plan.activation)
+        assertNull(plan.reset)
+    }
+
+    @Test fun slotSelectionAccountsForBothFirmwareFilesAndIgnoresComments() {
+        val main = conditionalBaseline() + "\nNXP_RF_CONF_BLK_20={20,02,00}\n"
+        val plan = XiaomiNxpConfig.plan(main, rf + "# NXP_RF_CONF_BLK_30={20,02,00}\n", uid)
+        assertTrue(plan.activation.startsWith("NXP_RF_CONF_BLK_21="))
+        // An RF-file override of a main-file block is retained, not mistaken for a free slot.
+        assertTrue(XiaomiNxpConfig.plan(main, rf + "NXP_RF_CONF_BLK_20={20,02,00}\n", uid)
+            .activation.startsWith("NXP_RF_CONF_BLK_21="))
+    }
+
+    @Test fun missingMalformedOrExhaustedRfLayoutIsRefused() {
+        for (bad in listOf(null, "", "# empty", rf + rf, "NXP_RF_CONF_BLK_foo={20,02,00}",
+                "NXP_RF_CONF_BLK_31={20,02,00}", "NXP_RF_CONF_BLK_30={20,02,00}")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                XiaomiNxpConfig.plan(conditionalBaseline(), bad, uid)
+            }
+        }
+    }
+
+    @Test fun applicationPolicyMustBePresentAndUnambiguous() {
+        for (value in listOf("0", "0x00", "0X0")) {
+            assertFalse(XiaomiNxpConfig.setConfigAlways("NXP_SET_CONFIG_ALWAYS=$value # comment\n$baseline"))
+        }
+        for (value in listOf("1", "0x01", "0X1")) {
+            assertTrue(XiaomiNxpConfig.setConfigAlways("NXP_SET_CONFIG_ALWAYS=$value\n$baseline"))
+        }
+        for (bad in listOf(baseline, "NXP_SET_CONFIG_ALWAYS=2\n$baseline", "NXP_SET_CONFIG_ALWAYS={}\n$baseline",
+                conditionalBaseline() + "\nNXP_SET_CONFIG_ALWAYS=1\n")) {
+            assertThrows(IllegalArgumentException::class.java) { XiaomiNxpConfig.setConfigAlways(bad) }
+        }
+    }
+
+    @Test fun savedResetRejectsExtraKeysProprietaryCommandsAndMalformedFraming() {
+        val reset = XiaomiNxpConfig.plan(conditionalBaseline(), rf, uid).reset
+        for (bad in listOf(reset + "NXP_OTHER=1", reset + reset,
+                reset.replace("NXP_RF_CONF_BLK_13", "NXP_RF_CONF_BLK_31"),
+                reset.replace("20,02,33,11", "2F,02,33,11"),
+                reset.replace("28,01,00", "A0,01,00"))) {
+            assertThrows(IllegalArgumentException::class.java) { XiaomiNxpConfig.validateReset(bad) }
+        }
+    }
+
+    @Test fun transitChangesApplyAndRestoreWithAControllerModelThatSkipsUnchangedCore() {
+        // Model the HAL distinction found in diting: only RF blocks replay for a transit CRC change.
+        var controller = XiaomiNxpConfig.parse(baseline)
+        var lastTransit: String? = null
+        fun restartWith(transit: String?) {
+            if (transit != lastTransit && transit?.startsWith("NXP_RF_CONF_BLK_13=") == true) {
+                controller = XiaomiNxpConfig.parse(transit.replace("NXP_RF_CONF_BLK_13", "NXP_CORE_CONF"))
+            }
+            lastTransit = transit
+        }
+        restartWith(XiaomiNxpConfig.configuration(baseline, uid))
+        assertEquals(0, controller[0x33]!!.size) // Old carrier was accepted but did not change the UID.
+        val plan = XiaomiNxpConfig.plan(conditionalBaseline(), rf, uid)
+        restartWith(plan.activation)
+        assertArrayEquals(uid, controller[0x33])
+        val nextUid = byteArrayOf(0x2d, 0xd3.toByte(), 0x45, 0x4d)
+        restartWith(XiaomiNxpConfig.plan(conditionalBaseline(), rf, nextUid).activation)
+        assertArrayEquals(nextUid, controller[0x33])
+        restartWith(plan.reset)
+        restartWith(null)
+        XiaomiNxpConfig.parse(baseline).forEach { (id, bytes) -> assertArrayEquals(bytes, controller[id]) }
+    }
 }

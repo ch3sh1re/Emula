@@ -219,7 +219,7 @@ final class MotorolaStNfcController {
             try {
                 OemOperationReport rollback = new OemOperationReport(
                         OemOperationReport.Operation.DEACTIVATE);
-                rollback.path = OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE;
+                rollback.path = report.path;
                 report.stRollback = rollback;
                 restore(api, store, snapshot, rollback);
                 report.rollbackSucceeded = true;

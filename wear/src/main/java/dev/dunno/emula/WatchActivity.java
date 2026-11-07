@@ -2,9 +2,12 @@ package dev.dunno.emula;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Dialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -14,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -35,6 +39,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
 
+import androidx.core.splashscreen.SplashScreen;
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -46,10 +52,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Manual cards: tap to toggle emulation, hold to edit, swipe left to delete. */
 public final class WatchActivity extends Activity {
-    private enum Screen { CARDS, EDITOR, DELETE, SETTINGS, SETUP, DIAGNOSTICS }
+    private enum Screen { CARDS, EDITOR, DELETE, SETTINGS, SETUP, DIAGNOSTICS, RECEIVE, SEND_REPORT }
+    private enum Operation { START, STOP, RESTORE, PREPARE_REPORT, OTHER }
+    private static final int RECEIVE_PERMISSION = 0x5744;
+    private static final int REPORT_PERMISSION = 0x5745;
+    private LocalWatchLink receiveLink;
+    private String receiveMessage = "";
+    private WatchReportLink reportLink;
+    private String transferMessage = "";
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final int ACCENT = Color.rgb(141, 185, 255);
+    private static final int ERROR = Color.rgb(255, 180, 171);
     private final StringBuilder evidence = new StringBuilder();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final OnBackInvokedCallback backCallback = this::navigateBack;
@@ -62,9 +76,13 @@ public final class WatchActivity extends Activity {
     private String nameDraft = "";
     private String uidDraft = "";
     private String message = "";
+    private String lastResult = "";
     private String reportText = "";
+    private String diagnosticEvidence = "";
+    private boolean reportPrepared;
     private String adapterEvidence = "";
     private boolean busy;
+    private boolean resumed;
     private boolean coldStart;
     private LinearLayout content;
     private ScrollView scroll;
@@ -72,11 +90,27 @@ public final class WatchActivity extends Activity {
     private EditText uidInput;
     private WatchNfcSession.Pending pending;
     private boolean recovery;
+    private String busyCardId;
+    private Operation operation = Operation.OTHER;
+    private Screen renderedScreen;
+    private int cardsScrollY;
+    private WatchUiError uiError;
+    private Operation errorOperation = Operation.OTHER;
+    private Dialog errorDialog;
+    private Dialog setupDialog;
+    private Dialog rawConsentDialog;
+    private boolean permissionPromptShown;
+    private boolean reopenSetupPrompt;
+    private WatchUiError inlineError;
+    private String inlineCardId;
+    private View inlineStatus;
 
     private final Runnable permissionRefresh = new Runnable() {
         @Override public void run() {
             if (isFinishing() || isDestroyed()) return;
             if (hasPermission()) {
+                dismissSetupPrompt();
+                if (inlineError == WatchUiError.PERMISSION) inlineError = null;
                 if (!busy && (screen == Screen.CARDS || screen == Screen.SETUP)) render();
             } else {
                 handler.postDelayed(this, 1000);
@@ -85,6 +119,7 @@ public final class WatchActivity extends Activity {
     };
 
     @Override protected void onCreate(Bundle state) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(state);
         coldStart = !STARTED.getAndSet(true);
         store = new WatchSessionStore(getSharedPreferences("watch_restore", MODE_PRIVATE));
@@ -99,7 +134,21 @@ public final class WatchActivity extends Activity {
             nameDraft = state.getString("nameDraft", "");
             uidDraft = state.getString("uidDraft", "");
             message = state.getString("message", "");
+            lastResult = state.getString("lastResult", message);
             reportText = state.getString("reportText", "");
+            evidence.append(state.getString("operationEvidence", ""));
+            diagnosticEvidence = state.getString("diagnosticEvidence", "");
+            cardsScrollY = state.getInt("cardsScrollY", 0);
+            permissionPromptShown = state.getBoolean("permissionPromptShown");
+            reopenSetupPrompt = state.getBoolean("setupPromptOpen");
+            inlineCardId = state.getString("inlineCardId");
+            try {
+                String savedInline = state.getString("inlineError");
+                if (savedInline != null) inlineError = WatchUiError.valueOf(savedInline);
+                String savedError = state.getString("uiError");
+                if (savedError != null) uiError = WatchUiError.valueOf(savedError);
+                errorOperation = Operation.valueOf(state.getString("errorOperation", Operation.OTHER.name()));
+            } catch (IllegalArgumentException ignored) { uiError = null; }
         }
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.BLACK));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -109,6 +158,8 @@ public final class WatchActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        resumed = true;
+        clearResolvedPrerequisite();
         if (coldStart) {
             coldStart = false;
             try {
@@ -116,9 +167,10 @@ public final class WatchActivity extends Activity {
                     requireNfc();
                     session.restore();
                     return getString(R.string.restored);
-                }, null);
+                }, null, Operation.RESTORE);
             } catch (Exception failure) {
                 message = getString(R.string.error, describe(failure));
+                showFailure(failure, true, Operation.RESTORE, null);
                 render();
             }
         } else if (!busy && screen != Screen.EDITOR) {
@@ -128,15 +180,23 @@ public final class WatchActivity extends Activity {
         // Keep the editor and its InputConnection alive across that transition.
         handler.removeCallbacks(permissionRefresh);
         if (!hasPermission()) handler.postDelayed(permissionRefresh, 1000);
+        if (!busy && !hasPermission() && screen == Screen.CARDS && uiError == null
+                && (!permissionPromptShown || reopenSetupPrompt)) showSetupPrompt();
     }
 
     @Override protected void onPause() {
+        resumed = false;
+        cancelReceive();
+        cancelReport();
         handler.removeCallbacks(permissionRefresh);
         super.onPause();
     }
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(permissionRefresh);
+        if (errorDialog != null) errorDialog.dismiss();
+        dismissSetupPrompt();
+        if (rawConsentDialog != null) rawConsentDialog.dismiss();
         getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         super.onDestroy();
     }
@@ -148,11 +208,25 @@ public final class WatchActivity extends Activity {
         state.putString("nameDraft", nameDraft);
         state.putString("uidDraft", uidDraft);
         state.putString("message", message);
+        state.putString("lastResult", lastResult);
         state.putString("reportText", reportText);
+        state.putString("operationEvidence", evidence.toString());
+        state.putString("diagnosticEvidence", diagnosticEvidence);
+        state.putInt("cardsScrollY", renderedScreen == Screen.CARDS && scroll != null
+                ? scroll.getScrollY() : cardsScrollY);
+        state.putBoolean("permissionPromptShown", permissionPromptShown);
+        state.putBoolean("setupPromptOpen", setupDialog != null && setupDialog.isShowing());
+        state.putString("inlineCardId", inlineCardId);
+        if (inlineError != null) state.putString("inlineError", inlineError.name());
+        if (uiError != null) state.putString("uiError", uiError.name());
+        state.putString("errorOperation", errorOperation.name());
         super.onSaveInstanceState(state);
     }
 
     private void render() {
+        if (renderedScreen == Screen.CARDS && scroll != null) cardsScrollY = scroll.getScrollY();
+        int scrollY = scroll != null && renderedScreen == screen ? scroll.getScrollY()
+                : screen == Screen.CARDS ? cardsScrollY : 0;
         pending = null;
         recovery = false;
         try {
@@ -161,6 +235,10 @@ public final class WatchActivity extends Activity {
         } catch (Exception failure) {
             recovery = true;
             message = getString(R.string.error, describe(failure));
+            if (screen != Screen.DIAGNOSTICS && screen != Screen.SEND_REPORT) {
+                uiError = WatchUiError.RECOVERY;
+                errorOperation = Operation.RESTORE;
+            }
         }
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -191,24 +269,39 @@ public final class WatchActivity extends Activity {
         }
         nameInput = null;
         uidInput = null;
+        inlineStatus = null;
         switch (screen) {
             case EDITOR: renderEditor(); break;
             case DELETE: renderDelete(); break;
             case SETTINGS: renderSettings(); break;
             case SETUP: renderSetup(); break;
             case DIAGNOSTICS: renderDiagnostics(); break;
+            case RECEIVE: renderReceive(); break;
+            case SEND_REPORT: renderReportTransfer(); break;
             default: renderCards();
         }
-        if (busy) addText(getString(R.string.busy), 13, ACCENT);
-        else if (!message.isEmpty() && screen != Screen.DIAGNOSTICS) {
+        if (!busy && screen != Screen.CARDS && inlineError != null) renderInlineStatus();
+        if (busy && busyCardId == null) addText(getString(R.string.busy), 13, ACCENT);
+        else if (!busy && uiError == null && inlineError == null && !message.isEmpty() && screen != Screen.DIAGNOSTICS) {
             TextView status = addText(message, 13, ACCENT);
             status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         }
+        renderedScreen = screen;
+        ScrollView renderedScroll = scroll;
+        View statusToReveal = inlineStatus;
+        renderedScroll.post(() -> {
+            if (scroll != renderedScroll) return;
+            renderedScroll.scrollTo(0, scrollY);
+            if (statusToReveal != null) statusToReveal.requestRectangleOnScreen(
+                    new Rect(0, 0, statusToReveal.getWidth(), statusToReveal.getHeight()), false);
+        });
         if (screen != Screen.EDITOR) scroll.requestFocus();
+        if (uiError != null && errorDialog == null && !isFinishing() && !isDestroyed()) showErrorDialog();
     }
 
     private void renderCards() {
         List<SavedCard> cards = CardStore.getCards(this);
+        if (inlineError != null && inlineCardId == null) renderInlineStatus();
         if (cards.isEmpty()) addText(getString(R.string.empty), 16, Color.LTGRAY);
         if (recovery) {
             addText(getString(R.string.recovery), 14, ACCENT);
@@ -245,10 +338,35 @@ public final class WatchActivity extends Activity {
                     return super.performAccessibilityAction(host, action, arguments);
                 }
             });
+            if (busy && card.id.equals(busyCardId)) {
+                TextView status = addText(getString(operation == Operation.STOP
+                        ? R.string.stopping : R.string.starting), 13, ACCENT);
+                status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            } else if (inlineError != null && card.id.equals(inlineCardId)) renderInlineStatus();
         }
         button(getString(R.string.add_card), () -> openEditor(null));
+        button(getString(R.string.receive_cards), this::beginReceive);
         if (!hasPermission()) button(getString(R.string.setup), () -> navigate(Screen.SETUP));
         button(getString(R.string.settings), () -> navigate(Screen.SETTINGS));
+    }
+
+    private void renderInlineStatus() {
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        content.addView(group, new LinearLayout.LayoutParams(-1, -2));
+        TextView reason = addText(group, getString(inlineError == WatchUiError.PERMISSION
+                ? R.string.error_permission : R.string.error_nfc_off), 13, ERROR);
+        reason.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE);
+        if (inlineError == WatchUiError.PERMISSION) {
+            button(group, getString(R.string.setup), () -> navigate(Screen.SETUP));
+        } else button(group, getString(R.string.open_nfc_settings), this::openNfcSettings);
+        inlineStatus = group;
+    }
+
+    private void clearResolvedPrerequisite() {
+        if (inlineError == WatchUiError.PERMISSION && hasPermission()) inlineError = null;
+        if (inlineError == WatchUiError.NFC_OFF && adapter != null && adapter.isEnabled()) inlineError = null;
+        if (hasPermission()) dismissSetupPrompt();
     }
 
     private void attachDeleteGesture(Button item, SavedCard card) {
@@ -347,6 +465,11 @@ public final class WatchActivity extends Activity {
     }
 
     private void toggleCard(SavedCard card) {
+        if (busy) return;
+        boolean[] consentRequired = {false};
+        busyCardId = card.id;
+        Operation requested = pending != null && pending.cardId.equals(card.id)
+                ? Operation.STOP : Operation.START;
         runTask(() -> {
             WatchNfcSession.Pending current = store.load();
             if (current != null && current.cardId.equals(card.id)) {
@@ -356,16 +479,54 @@ public final class WatchActivity extends Activity {
             }
             if (!UidCodec.isSupportedLength(card.uid.length)) throw new IllegalArgumentException(getString(R.string.uid_error));
             requireNfc();
-            if (!WatchReleasePolicy.supportsDevice(Build.MANUFACTURER, Build.MODEL)) {
-                throw new UnsupportedOperationException(getString(R.string.unsupported_device));
+            WatchNfcSession.Path path = activationPath();
+            if (path == null) {
+                throw new WatchUiError.Condition(WatchUiError.OEM_UNAVAILABLE,
+                        getString(R.string.emulation_unavailable));
             }
-            if (!OemNfcController.inspectCapabilities(this).androidOemExtension) {
-                throw new UnsupportedOperationException(getString(R.string.emulation_unavailable));
+            boolean rawConsent = hasRawConsent();
+            if (path == WatchNfcSession.Path.RAW && !rawConsent) {
+                consentRequired[0] = true;
+                return null;
             }
             if (current != null) session.restore();
-            session.activate(card.id, card.uid, WatchNfcSession.Path.OEM, false);
+            session.activate(card.id, card.uid, path, rawConsent);
             return getString(R.string.active);
-        }, null);
+        }, () -> { if (consentRequired[0]) confirmExperimentalRaw(card); }, requested);
+    }
+
+    private WatchNfcSession.Path activationPath() {
+        return WatchActivationPolicy.select(Build.VERSION.SDK_INT,
+                getPackageManager().hasSystemFeature("android.hardware.type.watch"),
+                OemNfcController.inspectCapabilities(this).androidOemExtension,
+                LegacyNfcDiagnostics.isRawNciApiAvailable(this),
+                !"UNAVAILABLE".equals(LegacyNfcController.pollingMethod(this)));
+    }
+
+    private boolean hasRawConsent() {
+        return WatchActivationPolicy.hasConsent(Build.FINGERPRINT,
+                getSharedPreferences("watch_experiments", MODE_PRIVATE).getString("rawFirmware", ""));
+    }
+
+    private void confirmExperimentalRaw(SavedCard card) {
+        if (rawConsentDialog != null || !resumed || isFinishing() || isDestroyed()) return;
+        Dialog dialog = watchDialog(R.string.experimental_nfc, body -> {
+            addText(body, getString(R.string.experimental_nfc_note), 14, Color.WHITE);
+            button(body, getString(R.string.try_experimental), () -> {
+                rawConsentDialog.dismiss();
+                runTask(() -> {
+                    if (!WatchActivationPolicy.hasConsent(Build.FINGERPRINT, Build.FINGERPRINT)
+                            || !getSharedPreferences("watch_experiments", MODE_PRIVATE).edit()
+                            .putString("rawFirmware", Build.FINGERPRINT).commit()) {
+                        throw new IllegalStateException("Could not save experimental NFC consent");
+                    }
+                    return null;
+                }, () -> toggleCard(card));
+            });
+            button(body, getString(R.string.cancel), () -> rawConsentDialog.dismiss());
+        });
+        rawConsentDialog = dialog;
+        dialog.setOnDismissListener(ignored -> { if (rawConsentDialog == dialog) rawConsentDialog = null; });
     }
 
     private void stopIfActive(String id) throws Exception {
@@ -377,16 +538,24 @@ public final class WatchActivity extends Activity {
     }
 
     private void stopEmulation() {
-        runTask(() -> { requireNfc(); session.restore(); return getString(R.string.restored); }, null);
+        runTask(() -> { requireNfc(); session.restore(); return getString(R.string.restored); },
+                null, Operation.RESTORE);
     }
 
     private void renderSettings() {
         addText(getString(R.string.settings), 18, Color.WHITE);
         button(getString(R.string.setup), () -> navigate(Screen.SETUP));
-        button(getString(R.string.diagnostics), () -> {
-            screen = Screen.DIAGNOSTICS;
-            runTask(() -> null, null);
-        });
+        button(getString(R.string.diagnostics), this::openDiagnostics);
+        if (hasRawConsent()) button(getString(R.string.disable_experimental), () -> runTask(() -> {
+            WatchNfcSession.Pending current = store.load();
+            if (current != null && current.path == WatchNfcSession.Path.RAW) {
+                requireNfc();
+                session.restore();
+            }
+            if (!getSharedPreferences("watch_experiments", MODE_PRIVATE).edit()
+                    .remove("rawFirmware").commit()) throw new IllegalStateException("Could not save preference");
+            return getString(R.string.experimental_disabled);
+        }, null));
         addText(getString(R.string.controls), 13, Color.LTGRAY);
         addText(getString(R.string.support_scope), 12, Color.LTGRAY);
         addText(BuildConfig.VERSION_NAME, 11, Color.GRAY);
@@ -398,22 +567,58 @@ public final class WatchActivity extends Activity {
         addText(getString(hasPermission() ? R.string.permission_ready : R.string.grant_required), 14,
                 hasPermission() ? ACCENT : Color.LTGRAY);
         if (!hasPermission()) {
+            addText(getString(R.string.setup_note), 13, Color.LTGRAY);
+            Intent debugging = new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
+            if (debugging.resolveActivity(getPackageManager()) != null) {
+                button(getString(R.string.open_debugging), () -> {
+                    try { startActivity(debugging); }
+                    catch (android.content.ActivityNotFoundException | SecurityException ignored) {
+                        message = getString(R.string.debugging_unavailable); render();
+                    }
+                });
+            }
             TextView command = addText(getString(R.string.grant_command, BuildConfig.APPLICATION_ID), 11, Color.WHITE);
             command.setTypeface(Typeface.MONOSPACE);
             command.setTextIsSelectable(true);
         }
-        addText(getString(R.string.setup_note), 12, Color.LTGRAY);
         button(getString(R.string.back), () -> navigate(Screen.CARDS));
+    }
+
+    private void showSetupPrompt() {
+        if (setupDialog != null || isFinishing() || isDestroyed()) return;
+        permissionPromptShown = true;
+        reopenSetupPrompt = false;
+        Dialog dialog = watchDialog(R.string.setup_once, body -> {
+            addText(body, getString(R.string.setup_short), 14, Color.WHITE);
+            LinearLayout actions = new LinearLayout(this);
+            body.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+            Button later = button(actions, getString(R.string.later), this::dismissSetupPrompt);
+            Button setup = button(actions, getString(R.string.setup), () -> {
+                dismissSetupPrompt(); navigate(Screen.SETUP);
+            });
+            for (Button action : new Button[]{later, setup}) {
+                action.setMinWidth(0);
+                action.setMinimumWidth(0);
+                LinearLayout.LayoutParams layout = (LinearLayout.LayoutParams) action.getLayoutParams();
+                layout.width = 0;
+                layout.weight = 1;
+                layout.leftMargin = dp(2);
+                layout.rightMargin = dp(2);
+            }
+        });
+        setupDialog = dialog;
+        dialog.setOnDismissListener(ignored -> { if (setupDialog == dialog) setupDialog = null; });
+    }
+
+    private void dismissSetupPrompt() {
+        if (setupDialog != null) { setupDialog.dismiss(); setupDialog = null; }
+        reopenSetupPrompt = false;
     }
 
     private void renderDiagnostics() {
         addText(getString(R.string.diagnostics), 18, Color.WHITE);
-        button(getString(R.string.get_config), () -> runTask(() -> {
-            requireNfc();
-            LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(this);
-            evidence.append("\nDIAGNOSTIC GET_CONFIG\n").append(probe.detailedSummary);
-            return probe.logSummary;
-        }, null));
+        button(getString(R.string.prepare_report), () -> prepareReport(null));
+        button(getString(R.string.send_report), this::beginReportTransfer);
         button(getString(R.string.back), () -> navigate(Screen.SETTINGS));
         TextView report = addText(reportText, 11, Color.LTGRAY);
         report.setGravity(Gravity.START);
@@ -421,10 +626,125 @@ public final class WatchActivity extends Activity {
         report.setTextIsSelectable(true);
     }
 
+    private void prepareReport(Runnable success) {
+        runTask(() -> {
+            // A report must remain shareable when NFC/permission is missing or the GET fails.
+            // Keep this read-only result separate from the last activation/restoration outcome.
+            diagnosticEvidence = "Prepared: " + Instant.now() + "\n";
+            try {
+                requireNfc();
+                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(this);
+                diagnosticEvidence += probe.detailedSummary;
+            } catch (Exception failure) {
+                diagnosticEvidence += "READ-ONLY PROBE UNAVAILABLE\n"
+                        + android.util.Log.getStackTraceString(failure);
+            }
+            return null;
+        }, success, Operation.PREPARE_REPORT);
+    }
+
     private void requireNfc() {
-        if (adapter == null) throw new IllegalStateException(getString(R.string.no_adapter));
-        if (!adapter.isEnabled()) throw new IllegalStateException(getString(R.string.nfc_off));
-        if (!hasPermission()) throw new SecurityException(getString(R.string.grant_required));
+        if (adapter == null) throw new WatchUiError.Condition(WatchUiError.NFC_UNAVAILABLE,
+                getString(R.string.no_adapter));
+        if (!adapter.isEnabled()) throw new WatchUiError.Condition(WatchUiError.NFC_OFF,
+                getString(R.string.nfc_off));
+        if (!hasPermission()) throw new WatchUiError.Condition(WatchUiError.PERMISSION,
+                getString(R.string.grant_required));
+    }
+
+    private void openDiagnostics() {
+        dismissError();
+        screen = Screen.DIAGNOSTICS;
+        // Preserve the failed operation report; opening diagnostics never repeats an NFC call.
+        if (reportText.isEmpty()) runTask(() -> null, null);
+        else render();
+    }
+
+    private void showErrorDialog() {
+        Dialog dialog = watchDialog(errorTitle(), body -> {
+            int reason;
+            switch (uiError) {
+                case NFC_UNAVAILABLE: reason = R.string.error_no_nfc; break;
+                case OEM_UNAVAILABLE: reason = R.string.error_no_oem; break;
+                case RECOVERY: reason = R.string.error_recovery; break;
+                default: reason = R.string.error_generic;
+            }
+            addText(body, getString(reason), 14, Color.WHITE);
+            if (!reportText.isEmpty()) button(body, getString(R.string.send_report), this::beginReportTransfer);
+            if (uiError == WatchUiError.RECOVERY) button(body, getString(R.string.restore), () -> {
+                dismissError(); stopEmulation();
+            });
+            button(body, getString(R.string.diagnostics), this::openDiagnostics);
+            button(body, getString(R.string.back), this::dismissError);
+        });
+        errorDialog = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (errorDialog == dialog) { errorDialog = null; uiError = null; message = ""; }
+        });
+        getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.REJECT);
+    }
+
+    private Dialog watchDialog(int titleId, java.util.function.Consumer<LinearLayout> controls) {
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        dialog.setTitle(getString(titleId));
+        ScrollView errorScroll = new ScrollView(this);
+        errorScroll.setFillViewport(true);
+        boolean round = getResources().getConfiguration().isScreenRound();
+        errorScroll.setPadding(dp(round ? 28 : 16), dp(round ? 28 : 16),
+                dp(round ? 28 : 16), dp(round ? 32 : 20));
+        errorScroll.setClipToPadding(false);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setGravity(Gravity.CENTER);
+        errorScroll.addView(body, new ScrollView.LayoutParams(-1, -2));
+        TextView title = addText(body, getString(titleId), 18,
+                titleId == R.string.setup_once || titleId == R.string.experimental_nfc ? ACCENT : ERROR);
+        title.setAccessibilityHeading(true);
+        title.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE);
+        controls.accept(body);
+        errorScroll.setOnGenericMotionListener((view, event) -> {
+            if (event.getAction() != MotionEvent.ACTION_SCROLL) return false;
+            float delta = event.getAxisValue(MotionEvent.AXIS_SCROLL);
+            if (delta == 0) delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+            if (delta == 0) return false;
+            errorScroll.scrollBy(0, Math.round(-delta * dp(36)));
+            return true;
+        });
+        dialog.setContentView(errorScroll);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.BLACK));
+            dialog.getWindow().setLayout(-1, -1);
+            WindowInsetsController insets = dialog.getWindow().getInsetsController();
+            if (insets != null) insets.hide(WindowInsets.Type.systemBars());
+        }
+        errorScroll.requestFocus();
+        return dialog;
+    }
+
+    private int errorTitle() {
+        if (uiError == WatchUiError.RECOVERY || errorOperation == Operation.RESTORE) return R.string.error_restore;
+        if (errorOperation == Operation.START) return R.string.error_start;
+        if (errorOperation == Operation.STOP) return R.string.error_stop;
+        return R.string.error_action;
+    }
+
+    private void dismissError() {
+        uiError = null;
+        message = "";
+        if (errorDialog != null) errorDialog.dismiss();
+    }
+
+    private void openNfcSettings() {
+        for (String action : new String[] {Settings.ACTION_NFC_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS,
+                Settings.ACTION_SETTINGS}) {
+            Intent intent = new Intent(action);
+            if (intent.resolveActivity(getPackageManager()) == null) continue;
+            try { startActivity(intent); dismissError(); return; }
+            catch (android.content.ActivityNotFoundException | SecurityException ignored) { /* Try fallback. */ }
+        }
+        dismissError();
+        navigate(Screen.SETUP);
     }
 
     private boolean hasPermission() {
@@ -445,6 +765,8 @@ public final class WatchActivity extends Activity {
 
     private void navigate(Screen target) {
         if (busy) return;
+        if (screen == Screen.RECEIVE && target != Screen.RECEIVE) cancelReceive();
+        if (screen == Screen.SEND_REPORT && target != Screen.SEND_REPORT) cancelReport();
         screen = target;
         message = "";
         render();
@@ -457,25 +779,189 @@ public final class WatchActivity extends Activity {
         else navigate(screen == Screen.DIAGNOSTICS ? Screen.SETTINGS : Screen.CARDS);
     }
 
+    private void renderReceive() {
+        addText(getString(R.string.receive_cards), 18, Color.WHITE);
+        addText(receiveMessage.isEmpty() ? getString(R.string.receive_stopped) : receiveMessage,
+                14, Color.LTGRAY);
+        addText(getString(R.string.receive_note), 12, Color.LTGRAY);
+        if (receiveLink == null) button(getString(R.string.receive_retry), this::beginReceive);
+        button(getString(R.string.cancel), () -> navigate(Screen.CARDS));
+    }
+
+    private void beginReceive() {
+        if (busy || receiveLink != null) return;
+        screen = Screen.RECEIVE;
+        message = "";
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            receiveMessage = getString(R.string.receive_permission);
+            render();
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, RECEIVE_PERMISSION);
+            return;
+        }
+        startReceive();
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private void startReceive() {
+        try {
+            android.bluetooth.BluetoothManager manager = getSystemService(android.bluetooth.BluetoothManager.class);
+            android.bluetooth.BluetoothAdapter bluetooth = manager == null ? null : manager.getAdapter();
+            if (bluetooth == null || !bluetooth.isEnabled()) {
+                receiveMessage = getString(R.string.receive_bluetooth);
+                render();
+                return;
+            }
+            receiveMessage = getString(R.string.receive_wait);
+            receiveLink = LocalWatchLink.receive(bluetooth,
+                    cards -> CardStore.appendReceived(getApplicationContext(), cards), new LocalWatchLink.Callback() {
+                @Override public void complete(WatchCardPacket.Result result) {
+                    cancelReceive();
+                    if (isDestroyed() || isFinishing()) return;
+                    screen = Screen.CARDS;
+                    message = getString(R.string.receive_done, result.added, result.skipped);
+                    render();
+                }
+                @Override public void failed(boolean timeout) {
+                    cancelReceive();
+                    if (isDestroyed() || isFinishing()) return;
+                    receiveMessage = getString(timeout ? R.string.receive_timeout : R.string.receive_failed);
+                    render();
+                }
+            });
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            render();
+        } catch (SecurityException failure) {
+            receiveMessage = getString(R.string.receive_permission);
+            render();
+        }
+    }
+
+    private void cancelReceive() {
+        if (receiveLink != null) {
+            receiveLink.close();
+            receiveLink = null;
+            receiveMessage = getString(R.string.receive_stopped);
+            if (!busy) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+    }
+
+    private void renderReportTransfer() {
+        addText(getString(R.string.send_report), 18, Color.WHITE);
+        addText(transferMessage.isEmpty() ? getString(R.string.report_stopped) : transferMessage,
+                14, Color.LTGRAY);
+        addText(getString(R.string.report_privacy), 12, Color.LTGRAY);
+        if (reportLink == null) button(getString(R.string.receive_retry), this::beginReportTransfer);
+        button(getString(R.string.back), () -> navigate(Screen.DIAGNOSTICS));
+    }
+
+    private void beginReportTransfer() {
+        if (busy || reportLink != null) return;
+        dismissError();
+        if (!reportPrepared) {
+            prepareReport(this::offerPreparedReport);
+            return;
+        }
+        offerPreparedReport();
+    }
+
+    private void offerPreparedReport() {
+        // Preparation can finish after Home/ambient mode; never open a transfer in background.
+        if (!resumed || isFinishing()) return;
+        screen = Screen.SEND_REPORT;
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            transferMessage = getString(R.string.report_permission);
+            render();
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REPORT_PERMISSION);
+        } else startReportTransfer();
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private void startReportTransfer() {
+        try {
+            android.bluetooth.BluetoothManager manager = getSystemService(android.bluetooth.BluetoothManager.class);
+            android.bluetooth.BluetoothAdapter bluetooth = manager == null ? null : manager.getAdapter();
+            if (bluetooth == null || !bluetooth.isEnabled()) {
+                transferMessage = getString(R.string.receive_bluetooth);
+                render(); return;
+            }
+            byte[] report = WatchReportPacket.encode(reportText);
+            transferMessage = getString(R.string.report_wait);
+            reportLink = WatchReportLink.offer(bluetooth, report, new WatchReportLink.Callback() {
+                @Override public void complete(String ignored) {
+                    cancelReport();
+                    if (isDestroyed() || isFinishing()) return;
+                    transferMessage = getString(R.string.report_done);
+                    getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+                    render();
+                }
+                @Override public void failed(boolean timeout) {
+                    cancelReport();
+                    if (isDestroyed() || isFinishing()) return;
+                    transferMessage = getString(timeout ? R.string.report_timeout : R.string.report_failed);
+                    render();
+                }
+            });
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } catch (SecurityException failure) {
+            transferMessage = getString(R.string.report_permission);
+        } catch (java.io.IOException failure) {
+            transferMessage = getString(R.string.report_limit);
+        }
+        render();
+    }
+
+    private void cancelReport() {
+        if (reportLink == null) return;
+        reportLink.close();
+        reportLink = null;
+        transferMessage = getString(R.string.report_stopped);
+        if (!busy) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == RECEIVE_PERMISSION && screen == Screen.RECEIVE) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startReceive();
+            else { receiveMessage = getString(R.string.receive_permission); render(); }
+        }
+        if (requestCode == REPORT_PERMISSION && screen == Screen.SEND_REPORT) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startReportTransfer();
+            else { transferMessage = getString(R.string.report_permission); render(); }
+        }
+    }
+
     private interface Job { String run() throws Exception; }
 
     private void runTask(Job job, Runnable success) {
+        runTask(job, success, Operation.OTHER);
+    }
+
+    private void runTask(Job job, Runnable success, Operation requested) {
         if (busy) return;
+        reportPrepared = false;
+        if (requested != Operation.PREPARE_REPORT) diagnosticEvidence = "";
+        operation = requested;
+        String targetCardId = busyCardId;
+        inlineError = null;
+        inlineCardId = null;
         busy = true;
+        message = "";
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         render();
         WORK.execute(() -> {
             String result = null;
             boolean completed = false;
+            Throwable operationFailure = null;
             try { result = job.run(); completed = true; }
             catch (Throwable failure) {
+                operationFailure = failure;
                 evidence.append("\nOPERATION FAILURE\n").append(android.util.Log.getStackTraceString(failure));
                 result = getString(R.string.error, describe(failure));
                 if (failure.getSuppressed().length > 0) result += "\n" + getString(R.string.recovery);
             }
             String report;
             try {
-                report = buildReport(result == null ? message : result);
+                report = buildReport(result == null ? lastResult : result);
                 Files.write(new File(getFilesDir(), "nfc-diagnostics.txt").toPath(), report.getBytes(StandardCharsets.UTF_8));
             } catch (Throwable failure) {
                 report = "REPORT FAILURE\n" + android.util.Log.getStackTraceString(failure) + "\n" + evidence;
@@ -483,19 +969,50 @@ public final class WatchActivity extends Activity {
             String finalResult = result;
             String finalReport = report;
             boolean succeeded = completed;
+            Throwable finalFailure = operationFailure;
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 busy = false;
+                busyCardId = null;
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                if (finalResult != null) message = finalResult;
+                if (finalResult != null) {
+                    lastResult = finalResult;
+                    message = succeeded && requested != Operation.OTHER ? "" : finalResult;
+                }
                 reportText = finalReport;
+                reportPrepared = succeeded && requested == Operation.PREPARE_REPORT;
+                if (!succeeded) {
+                    boolean needsRecovery = finalFailure.getSuppressed().length > 0;
+                    try {
+                        WatchNfcSession.Pending current = store.load();
+                        needsRecovery |= current != null && (!current.active
+                                || !Build.FINGERPRINT.equals(current.firmware)
+                                || requested == Operation.STOP || requested == Operation.RESTORE);
+                    } catch (Exception ignored) { needsRecovery = true; }
+                    showFailure(finalFailure, needsRecovery, requested, targetCardId);
+                }
                 if (succeeded && success != null) success.run();
                 if (succeeded && screen == Screen.CARDS && finalResult != null) {
                     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
                 }
                 render();
+                if (!permissionPromptShown && !hasPermission() && screen == Screen.CARDS
+                        && uiError == null) showSetupPrompt();
             });
         });
+    }
+
+    private void showFailure(Throwable failure, boolean needsRecovery, Operation requested, String cardId) {
+        WatchUiError kind = WatchUiError.from(failure, needsRecovery, hasPermission());
+        if (kind == WatchUiError.PERMISSION || kind == WatchUiError.NFC_OFF) {
+            inlineError = kind;
+            inlineCardId = cardId;
+            uiError = null;
+            message = "";
+        } else {
+            uiError = kind;
+            errorOperation = requested;
+        }
     }
 
     private String buildReport(String result) {
@@ -507,9 +1024,14 @@ public final class WatchActivity extends Activity {
                 .append("\nAndroid: ").append(Build.VERSION.RELEASE).append(" / API ").append(Build.VERSION.SDK_INT)
                 .append("\nFingerprint: ").append(Build.FINGERPRINT)
                 .append("\nSecurity patch: ").append(Build.VERSION.SECURITY_PATCH)
-                .append("\nSupported model: ").append(WatchReleasePolicy.supportsDevice(Build.MANUFACTURER, Build.MODEL))
+                .append("\nActivation scope: Android 15+ watches; no model restriction")
                 .append("\nWRITE_SECURE_SETTINGS: ").append(hasPermission())
                 .append("\nNFC adapter: ").append(adapter != null).append('\n').append(adapterEvidence)
+                .append("\nNFC enabled: ").append(adapter != null && adapter.isEnabled())
+                .append("\nExperimental raw consent for current firmware: ").append(hasRawConsent())
+                .append("\nRaw NCI API: ").append(LegacyNfcDiagnostics.isRawNciApiAvailable(this))
+                .append("\nPolling method (foreground): ").append(LegacyNfcController.pollingMethod(this))
+                .append("\nAvailable activation path: ").append(activationPath())
                 .append("\n\n").append(OemNfcController.inspectCapabilities(this).format(true));
         for (String feature : new String[] {"android.hardware.type.watch", "android.hardware.nfc",
                 "android.hardware.nfc.hce", "android.hardware.nfc.hcef", "android.hardware.nfc.ese"}) {
@@ -525,6 +1047,8 @@ public final class WatchActivity extends Activity {
         } catch (Exception failure) { output.append("\nPending state failure: ").append(failure); }
         return output.append("\n\nRESULT\n").append(result)
                 .append("\n\nOPERATIONS\n").append(evidence)
+                .append("\n\nREPORT DIAGNOSTIC\n").append(diagnosticEvidence.isEmpty()
+                        ? "Not prepared yet" : diagnosticEvidence)
                 .append("\n\nADB permission:\n")
                 .append(getString(R.string.grant_command, BuildConfig.APPLICATION_ID)).toString();
     }
@@ -568,17 +1092,25 @@ public final class WatchActivity extends Activity {
     }
 
     private TextView addText(String value, int size, int color) {
+        return addText(content, value, size, color);
+    }
+
+    private TextView addText(LinearLayout parent, String value, int size, int color) {
         TextView text = new TextView(this);
         text.setText(value);
         text.setTextSize(size);
         text.setTextColor(color);
         text.setGravity(Gravity.CENTER);
         text.setPadding(0, dp(6), 0, dp(6));
-        content.addView(text, new LinearLayout.LayoutParams(-1, -2));
+        parent.addView(text, new LinearLayout.LayoutParams(-1, -2));
         return text;
     }
 
     private Button button(String label, Runnable action) {
+        return button(content, label, action);
+    }
+
+    private Button button(LinearLayout parent, String label, Runnable action) {
         Button button = new Button(this);
         button.setText(label);
         button.setTextColor(Color.WHITE);
@@ -594,7 +1126,7 @@ public final class WatchActivity extends Activity {
         LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
         layout.topMargin = dp(4);
         layout.bottomMargin = dp(4);
-        content.addView(button, layout);
+        parent.addView(button, layout);
         return button;
     }
 
