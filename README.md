@@ -10,6 +10,12 @@ keys, authentication, and protected application data are not copied.
 [Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
 [Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
+Current source versions: **phone 1.0.21 (41)** and **Wear 1.0.4-wear (10005)**.
+The [changelog](CHANGELOG.md) covers the accumulated updates since 1.0.13,
+including local Bluetooth transfers, diagnostic improvements, Xiaomi fixes,
+HONOR/vivo compatibility trials and experimental watch NFC. Source availability
+does not imply a Play rollout or verified support on every listed device.
+
 ## Background
 
 Emula began with wanting to use an Android phone instead of carrying a physical
@@ -25,8 +31,15 @@ feedback.
 - Tap a card to activate it; tap again to restore ordinary NFC operation.
 - Use launcher shortcuts, home screen widgets, and a Quick Settings tile on phones.
 - Import and export named UIDs as CSV through Android's file picker or sharing.
-- Collect NFC diagnostics for compatibility troubleshooting.
-- Use the standalone Wear OS app on the currently verified watch model.
+- Send saved cards to a paired watch over direct encrypted Bluetooth. Open
+  Receive from phone on the watch, then Send all cards to watch on the phone.
+  Existing watch cards and names are kept; matching UIDs are skipped. Both apps
+  need Nearby devices access. See [card transfer](docs/watch-transfer.md).
+- Prepare read-only NFC diagnostics and explicitly transfer watch reports to the
+  paired phone for review, copying or sharing. See [diagnostics](docs/watch-diagnostics.md).
+- Use the standalone Wear OS app on Android 15+ watches with the required NFC
+  capabilities. OEM emulation is primary; experimental raw fallback requires
+  firmware-specific approval and a complete saved configuration for restoration.
 
 Long UIDs can be stored and passed to the controller, but external-reader
 confirmation currently covers four-byte UIDs. Support depends on the device,
@@ -104,10 +117,11 @@ UIDs and other device information. Nothing is sent automatically.
 
 ## Repository history
 
-This public copy retains the dates and ordering of the private development
-history while removing private reports, build output, signing artifacts, and
-internal task material. Commit IDs changed during that cleanup. The first retained
-snapshot is Emula 1.0.9, dated October 5, 2026. See [HISTORY.md](HISTORY.md).
+The initial public copy retained the dates and ordering of cleaned development
+history. Later source refreshes are imported onto that public history without
+merging private reports, build output, signing artifacts or internal task material.
+The first retained snapshot is Emula 1.0.9, dated October 5, 2026.
+See [HISTORY.md](HISTORY.md).
 
 ## License
 

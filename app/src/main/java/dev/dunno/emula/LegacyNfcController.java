@@ -147,6 +147,11 @@ final class LegacyNfcController {
             PollingControl pollingControl = PollingControl.resolve(
                     context, adapter, allowUnverified);
             report.pollingMethod = pollingControl == null ? "UNAVAILABLE" : pollingControl.method;
+            if (pollingControl == null && RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+                    Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL)) {
+                throw new IllegalStateException(
+                        "The app must be in the foreground to pause NFC discovery");
+            }
 
             try (RawNciSession session = RawNciSession.open(adapter)) {
                 ActivationResult result;
@@ -525,6 +530,11 @@ final class LegacyNfcController {
 
         static PollingControl resolve(Context context, NfcAdapter adapter,
                 boolean allowUnverified) {
+            if (RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
+                    Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL)) {
+                return context instanceof Activity
+                        ? new DiscoveryTechnologyPollingControl(adapter, (Activity) context) : null;
+            }
             if (RawNfcDeviceCatalog.prefersDiscoveryTechnologyControl(
                     Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL)
                     && context instanceof Activity) {

@@ -1,5 +1,6 @@
 package dev.dunno.emula
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,5 +80,31 @@ class OemOperationReportTest {
         assertTrue(text.contains("PRECEDING MOTOROLA ST ATTEMPT"))
         assertTrue(text.contains("ST readback mismatch at 0x33"))
         assertTrue(text.contains("Succeeded: OK"))
+    }
+
+    @Test
+    fun honorFallbackPreservesItsOwnFailureAndRestorationEvidenceInBothReports() {
+        val report = OemOperationReport(OemOperationReport.Operation.ACTIVATE).apply {
+            stAttempt = OemOperationReport(OemOperationReport.Operation.ACTIVATE).apply {
+                path = OemOperationReport.Path.HONOR_ST_VENDOR_HCE
+                failure = "HONOR readback mismatch at 0x33"
+                rollbackAttempted = true
+                rollbackSucceeded = true
+                stRollback = OemOperationReport(OemOperationReport.Operation.DEACTIVATE).apply {
+                    path = OemOperationReport.Path.HONOR_ST_VENDOR_HCE
+                    stage = "COMPLETE"
+                    snapshotState = "RESTORED"
+                    notes.add("original HONOR configuration verified")
+                }
+            }
+        }
+        for (text in listOf(report.formatForDisplay(), report.formatDetailed())) {
+            assertTrue(text.contains("PRECEDING HONOR ST ATTEMPT"))
+            assertTrue(text.contains("HONOR readback mismatch at 0x33"))
+            assertTrue(text.contains("ST ROLLBACK EVIDENCE"))
+            assertTrue(text.contains("Snapshot: RESTORED"))
+            assertFalse(text.contains("MOTOROLA ST"))
+        }
+        assertTrue(report.formatDetailed().contains("original HONOR configuration verified"))
     }
 }

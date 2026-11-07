@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.Map;
 
 /** Model-scoped access to the NXP transit-config API. Phone only. */
 @SuppressLint("PrivateApi")
@@ -21,7 +22,7 @@ final class XiaomiNfcController {
     static final String KNOWN_BASELINE_FINGERPRINT =
             "Redmi/garnet_global/garnet:15/AQ3A.240912.001/OS2.0.206.0.VNRMIXM:user/release-keys";
     private static final String PREFS = "xiaomi_nxp_transit";
-    private static final int RESTORE_VERSION = 1;
+    private static final int RESTORE_VERSION = 2;
     private static final VendorCallGate CALLS = new VendorCallGate();
     private static volatile boolean restarting;
 
@@ -34,9 +35,36 @@ final class XiaomiNfcController {
 
     static boolean isTargetDevice(int sdk, String manufacturer, String model,
             String device, String product) {
+        if (sdk < 35 || !"Xiaomi".equalsIgnoreCase(manufacturer)) return false;
+        return ("2312DRA50G".equals(model) && "garnet".equals(device)
+                && "garnet_global".equals(product))
+                || ("22081212UG".equals(model) && "diting".equals(device)
+                && "ditingp_global".equals(product))
+                || isTanzaniteDevice(sdk, manufacturer, model, device, product);
+    }
+
+    static boolean isTanzaniteDevice(int sdk, String manufacturer, String model,
+            String device, String product) {
         return sdk >= 35 && "Xiaomi".equalsIgnoreCase(manufacturer)
-                && "2312DRA50G".equals(model) && "garnet".equals(device)
-                && "garnet_global".equals(product);
+                && "24117RN76E".equals(model) && "tanzanite".equals(device)
+                && "tanzanite_eea".equals(product);
+    }
+
+    private static boolean isTanzaniteDevice() {
+        return isTanzaniteDevice(Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL,
+                Build.DEVICE, Build.PRODUCT);
+    }
+
+    static boolean permitsRawFallback(boolean tanzanite, boolean activating, boolean pending,
+            boolean vendorIdle, OemOperationReport report) {
+        return tanzanite && activating && !pending && vendorIdle && report != null
+                && report.path == OemOperationReport.Path.XIAOMI_NXP_TRANSIT
+                && report.transitCalls.isEmpty();
+    }
+
+    static boolean permitsRawFallback(Context context, boolean activating, OemOperationReport report) {
+        return permitsRawFallback(isTanzaniteDevice(), activating, hasPendingRestore(context),
+                CALLS.isIdle() && !Thread.currentThread().isInterrupted(), report);
     }
 
     static boolean hasPendingRestore(Context context) {
@@ -55,8 +83,11 @@ final class XiaomiNfcController {
             text.append("\nXiaomi chip ID: ").append(api.chipId)
                     .append("\nNXP firmware bytes: ").append(api.firmware)
                     .append("\nNXP setConfig: resolved");
-            api.configuration(new byte[UidCodec.DEFAULT_UID_LENGTH]); // Validate only; never sent.
-            text.append("\nXiaomi base configuration: ").append(api.configurationSource());
+            Recovery pending = store(context).load();
+            XiaomiNxpConfig.Plan plan = api.prepare(new byte[UidCodec.DEFAULT_UID_LENGTH],
+                    pending == null ? null : pending.reset); // Read only.
+            text.append("\nXiaomi base configuration: ").append(api.configurationSource())
+                    .append("\nXiaomi config carrier: ").append(plan.carrier);
         } catch (Throwable error) {
             text.append("\nXiaomi probe: ").append(describe(error));
         }
@@ -91,28 +122,49 @@ final class XiaomiNfcController {
     }
 
     interface ConfigApi {
-        String configuration(byte[] uid) throws Exception;
+        XiaomiNxpConfig.Plan prepare(byte[] uid) throws Exception;
+        default XiaomiNxpConfig.Plan prepare(byte[] uid, String savedReset) throws Exception { return prepare(uid); }
+        default boolean usesLiveSnapshot() { return false; }
+        default void verifyConfiguration(String config, OemOperationReport report) throws Exception {}
         default String configurationSource() { return "not reported"; }
+        default String preparationEvidence() { return null; }
         int setConfig(String value) throws Exception;
         boolean nfcReady() throws Exception;
     }
 
     interface Store {
-        String load();
-        void save(String fingerprint);
+        Recovery load();
+        void save(Recovery recovery);
         void clear();
+    }
+
+    static final class Recovery {
+        final String fingerprint;
+        final String reset;
+        final boolean legacy;
+
+        Recovery(String fingerprint, String reset, boolean legacy) {
+            this.fingerprint = fingerprint;
+            this.reset = reset;
+            this.legacy = legacy;
+        }
     }
 
     /** Transaction logic is exercised with a fake service; no raw commands or fallback. */
     static void transact(ConfigApi api, Store store, String fingerprint, byte[] uid,
             OemOperationReport report) throws Exception {
         report.path = OemOperationReport.Path.XIAOMI_NXP_TRANSIT;
-        report.profile = "garnet / NXP transit config (experimental)";
-        report.notes.add("Factory reset replaces prior transit overrides; no original-file snapshot is available.");
+        report.profile = "Xiaomi / NXP transit config (experimental)";
+        report.notes.add(api.usesLiveSnapshot()
+                ? "Seven standard NCI parameters are snapshotted; the proprietary transit file is not backed up."
+                : "Factory reset replaces prior transit overrides; no original-file snapshot is available.");
         report.notes.add("A vendor acknowledgement does not verify RF UID, file deletion, payment, or transit cards.");
-        String pending = store.load();
-        if (pending != null && !fingerprint.equals(pending)) {
+        Recovery pending = store.load();
+        if (pending != null && !fingerprint.equals(pending.fingerprint)) {
             throw new IllegalStateException("Xiaomi reset belongs to a different firmware; recovery marker retained");
+        }
+        if (pending != null && pending.legacy && api.usesLiveSnapshot()) {
+            throw new IllegalStateException("Tanzanite recovery has no saved NCI snapshot");
         }
         if (uid == null) {
             if (pending == null) {
@@ -124,18 +176,27 @@ final class XiaomiNfcController {
             return;
         }
         report.stage = "READ_FIRMWARE_CORE_CONFIG";
-        String config = api.configuration(uid); // Validate before persisting or invoking any setter.
+        XiaomiNxpConfig.Plan plan = api.prepare(uid, pending == null ? null : pending.reset);
+        if (pending != null && !pending.legacy && !java.util.Objects.equals(pending.reset, plan.reset)) {
+            throw new IllegalStateException("Xiaomi configuration changed; stop the previous session first");
+        }
         report.notes.add("Baseline configuration: " + api.configurationSource());
+        if (api.preparationEvidence() != null) report.notes.add(api.preparationEvidence());
+        if (api.usesLiveSnapshot()) report.notes.add("Saved NCI restoration configuration: " + plan.reset);
+        report.notes.add("Configuration carrier: " + plan.carrier);
         report.uid = OemOperationReport.copy(uid);
         report.stage = "SAVE_PENDING_XIAOMI_RESET";
-        store.save(fingerprint); // Durable before either the service or HAL can write a file.
-        report.snapshotState = "FACTORY_RESET_PENDING (not an original-configuration snapshot)";
+        store.save(new Recovery(fingerprint, plan.reset, false)); // Durable before either writer.
+        report.snapshotState = api.usesLiveSnapshot() ? "NCI_SNAPSHOT_PENDING"
+                : "FACTORY_RESET_PENDING (not an original-configuration snapshot)";
         try {
-            report.stage = "XIAOMI_SET_TRANSIT_CONFIG";
-            report.vendorConfig = config;
-            report.vendorStatus = api.setConfig(config);
-            requireAccepted(api, report.vendorStatus);
-            report.result = "VENDOR_CONFIG_ACCEPTED_READER_UNVERIFIED";
+            writeConfig(api, report, "XIAOMI_SET_TRANSIT_CONFIG", plan.activation);
+            if (api.usesLiveSnapshot()) {
+                report.stage = "XIAOMI_VERIFY_CONFIG";
+                api.verifyConfiguration(plan.activation, report);
+            }
+            report.result = api.usesLiveSnapshot() ? "NCI_CONFIG_READBACK_VERIFIED_READER_UNVERIFIED"
+                    : "VENDOR_CONFIG_ACCEPTED_READER_UNVERIFIED";
             report.stage = "COMPLETE";
         } catch (Throwable primary) {
             report.failure = describe(primary);
@@ -160,15 +221,53 @@ final class XiaomiNfcController {
     }
 
     private static void reset(ConfigApi api, Store store, OemOperationReport report) throws Exception {
-        report.stage = "XIAOMI_REQUEST_FACTORY_RESET";
-        report.snapshotState = "FACTORY_RESET_PENDING";
-        report.vendorConfig = "<null: remove transit override>";
-        report.vendorStatus = api.setConfig(null);
-        requireAccepted(api, report.vendorStatus);
+        report.stage = api.usesLiveSnapshot() ? "XIAOMI_PREPARE_NCI_RESTORE" : "XIAOMI_PREPARE_FACTORY_RESET";
+        report.snapshotState = api.usesLiveSnapshot() ? "NCI_RESTORE_PENDING" : "FACTORY_RESET_PENDING";
+        Recovery recovery = store.load();
+        if (recovery == null) throw new IllegalStateException("Missing Xiaomi recovery state");
+        if (recovery.legacy) {
+            if (api.usesLiveSnapshot()) throw new IllegalStateException("Tanzanite recovery has no saved NCI snapshot");
+            // Upgrade build 35's marker before any reset. Its CORE_CONF may have been skipped too.
+            XiaomiNxpConfig.Plan plan = api.prepare(null);
+            recovery = new Recovery(recovery.fingerprint, plan.reset, false);
+            store.save(recovery);
+            report.notes.add("Upgraded legacy recovery; configuration carrier: " + plan.carrier);
+        }
+        if (recovery.reset != null) {
+            if (api.usesLiveSnapshot()) XiaomiNxpConfig.snapshotFromReset(recovery.reset);
+            else XiaomiNxpConfig.validateReset(recovery.reset);
+            writeConfig(api, report, api.usesLiveSnapshot() ? "XIAOMI_APPLY_SAVED_NCI_CONFIG"
+                    : "XIAOMI_APPLY_FIRMWARE_DEFAULTS", recovery.reset);
+        } else if (api.usesLiveSnapshot()) {
+            throw new IllegalStateException("Tanzanite recovery snapshot is missing");
+        }
+        writeConfig(api, report, "XIAOMI_REMOVE_TRANSIT_OVERRIDE", null);
+        if (api.usesLiveSnapshot()) {
+            report.stage = "XIAOMI_VERIFY_RESTORED_CONFIG";
+            api.verifyConfiguration(recovery.reset, report);
+        }
         store.clear(); // Keep recovery pending on rejected reset, dead service or disabled NFC.
-        report.snapshotState = "RESET_ACKNOWLEDGED; original override not restored";
-        report.result = "DEFAULT_RESET_ACCEPTED_NFC_READY";
+        report.snapshotState = api.usesLiveSnapshot() ? "SEVEN_NCI_PARAMETERS_RESTORED"
+                : "RESET_ACKNOWLEDGED; original override not restored";
+        report.result = api.usesLiveSnapshot() ? "NCI_RESTORE_READBACK_VERIFIED" : "DEFAULT_RESET_ACCEPTED_NFC_READY";
         report.stage = "COMPLETE";
+    }
+
+    private static void writeConfig(ConfigApi api, OemOperationReport report, String stage, String value)
+            throws Exception {
+        report.stage = stage;
+        report.vendorConfig = value == null ? "<null: remove transit override>" : value;
+        report.vendorStatus = null;
+        OemOperationReport.TransitCall call = new OemOperationReport.TransitCall(stage, report.vendorConfig);
+        report.transitCalls.add(call);
+        try {
+            report.vendorStatus = api.setConfig(value);
+            call.status = report.vendorStatus;
+            requireAccepted(api, report.vendorStatus);
+        } catch (Throwable error) {
+            call.failure = describe(error);
+            throw asException(error);
+        }
     }
 
     private static void requireAccepted(ConfigApi api, int status) throws Exception {
@@ -179,6 +278,8 @@ final class XiaomiNfcController {
     /** A hung Binder call cannot be interrupted safely. Keep it single-flight after timeout. */
     static final class VendorCallGate {
         private FutureTask<Integer> inFlight;
+
+        synchronized boolean isIdle() { return inFlight == null || inFlight.isDone(); }
 
         int call(java.util.concurrent.Callable<Integer> work, long timeoutMillis) throws Exception {
             FutureTask<Integer> task;
@@ -286,13 +387,16 @@ final class XiaomiNfcController {
         final String firmware;
         final WriteLedger ledger;
         final int boot;
+        final Context context;
         String configSource;
+        String snapshotEvidence;
 
         Api(Object receiver, Method setter, Method firmwareGetter, NfcAdapter adapter,
                 Context context, String chipId, String firmware) {
             this.receiver = receiver; this.setter = setter; this.firmwareGetter = firmwareGetter;
             this.adapter = adapter; this.packageName = context.getPackageName(); this.chipId = chipId;
             this.firmware = firmware;
+            this.context = context.getApplicationContext();
             boot = Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
             SharedPreferences prefs = preferences(context);
             ledger = new WriteLedger() {
@@ -310,7 +414,13 @@ final class XiaomiNfcController {
             };
         }
 
-        @Override public String configuration(byte[] uid) throws IOException {
+        @Override public boolean usesLiveSnapshot() { return isTanzaniteDevice(); }
+
+        @Override public XiaomiNxpConfig.Plan prepare(byte[] uid) throws Exception {
+            return prepare(uid, null);
+        }
+
+        @Override public XiaomiNxpConfig.Plan prepare(byte[] uid, String savedReset) throws Exception {
             String baseline;
             try (FileInputStream input = new FileInputStream("/vendor/etc/libnfc-nxp.conf")) {
                 baseline = XiaomiNxpConfig.read(input);
@@ -319,13 +429,42 @@ final class XiaomiNfcController {
                 if (!KNOWN_BASELINE_FINGERPRINT.equals(Build.FINGERPRINT)) {
                     throw new IOException("Cannot read this firmware's NFC configuration; no setter was invoked", unavailable);
                 }
-                baseline = XiaomiNxpConfig.CORE_CONF_206;
+                baseline = "NXP_SET_CONFIG_ALWAYS=0x01\n" + XiaomiNxpConfig.CORE_CONF_206;
                 configSource = "preserved Global 206 baseline (exact firmware match)";
             }
-            return XiaomiNxpConfig.configuration(baseline, uid);
+            if (usesLiveSnapshot()) {
+                Map<Integer, byte[]> snapshot = null;
+                if (savedReset == null) {
+                    LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
+                    snapshot = probe.configuration;
+                    snapshotEvidence = "Original tanzanite configuration\n" + probe.detailedSummary;
+                }
+                configSource += savedReset == null ? " + live seven-parameter GET snapshot"
+                        : " + saved seven-parameter snapshot";
+                return XiaomiNxpConfig.snapshotPlan(baseline, uid, snapshot, savedReset);
+            }
+            String rfBaseline = null;
+            if (!XiaomiNxpConfig.setConfigAlways(baseline)) {
+                try (FileInputStream input = new FileInputStream("/vendor/etc/libnfc-nxp_RF.conf")) {
+                    rfBaseline = XiaomiNxpConfig.read(input);
+                    configSource += " + /vendor/etc/libnfc-nxp_RF.conf";
+                } catch (IOException unavailable) {
+                    throw new IOException("Cannot read firmware RF blocks; no setter was invoked", unavailable);
+                }
+            }
+            return XiaomiNxpConfig.plan(baseline, rfBaseline, uid);
+        }
+
+        @Override public void verifyConfiguration(String config, OemOperationReport report) throws Exception {
+            LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
+            report.notes.add(report.stage + "\n" + probe.detailedSummary);
+            if (!XiaomiNxpConfig.matchesSnapshot(config, probe.configuration)) {
+                throw new IllegalStateException("Tanzanite NCI readback does not match the saved/expected configuration");
+            }
         }
 
         @Override public String configurationSource() { return configSource; }
+        @Override public String preparationEvidence() { return snapshotEvidence; }
 
         @Override public int setConfig(String value) throws Exception {
             return CALLS.call(() -> {
@@ -353,29 +492,49 @@ final class XiaomiNfcController {
     }
 
     private static Store store(Context context) {
-        SharedPreferences prefs = preferences(context);
+        return store(preferences(context), isTanzaniteDevice());
+    }
+
+    static Store store(SharedPreferences prefs) {
+        return store(prefs, false);
+    }
+
+    static Store store(SharedPreferences prefs, boolean liveSnapshot) {
         return new Store() {
-            @Override public String load() {
+            @Override public Recovery load() {
                 if (!prefs.getBoolean("pending", false)) return null;
-                if (prefs.getInt("version", 0) != RESTORE_VERSION) {
+                int version = prefs.getInt("version", 0);
+                if (version != 1 && version != RESTORE_VERSION) {
                     throw new IllegalStateException("Unknown Xiaomi reset marker version");
                 }
                 String firmware = prefs.getString("firmware", null);
                 if (firmware == null || firmware.isEmpty()) throw new IllegalStateException("Missing Xiaomi reset firmware");
-                return firmware;
+                if (version == 1) return new Recovery(firmware, null, true);
+                String reset = prefs.getString("reset_config", null);
+                if (reset == null) throw new IllegalStateException("Missing Xiaomi reset configuration");
+                validateRecovery(reset.isEmpty() ? null : reset, liveSnapshot);
+                return new Recovery(firmware, reset.isEmpty() ? null : reset, false);
             }
-            @Override public void save(String fingerprint) {
+            @Override public void save(Recovery recovery) {
+                validateRecovery(recovery.reset, liveSnapshot);
                 if (!prefs.edit().putBoolean("pending", true).putInt("version", RESTORE_VERSION)
-                        .putString("firmware", fingerprint).commit()) {
+                        .putString("firmware", recovery.fingerprint)
+                        .putString("reset_config", recovery.reset == null ? "" : recovery.reset).commit()) {
                     throw new IllegalStateException("Could not retain Xiaomi NFC recovery state");
                 }
             }
             @Override public void clear() {
-                if (!prefs.edit().remove("pending").remove("version").remove("firmware").commit()) {
+                if (!prefs.edit().remove("pending").remove("version").remove("firmware")
+                        .remove("reset_config").commit()) {
                     throw new IllegalStateException("Could not clear Xiaomi NFC recovery state");
                 }
             }
         };
+    }
+
+    private static void validateRecovery(String reset, boolean liveSnapshot) {
+        if (liveSnapshot) XiaomiNxpConfig.snapshotFromReset(reset);
+        else if (reset != null) XiaomiNxpConfig.validateReset(reset);
     }
 
     private static String describe(Throwable error) {

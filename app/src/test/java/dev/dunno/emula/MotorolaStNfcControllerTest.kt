@@ -306,6 +306,42 @@ class MotorolaStNfcControllerTest {
         assertNull(store.snapshot)
     }
 
+    @Test
+    fun honorTransactionSnapshotsAndRestoresAllUidLengths() {
+        for (size in listOf(4, 7, 10)) {
+            val api = FakeApi()
+            val store = MemoryStore()
+            val original = RawNciCodec.encodeConfiguration(api.values)
+            val report = report().apply { path = OemOperationReport.Path.HONOR_ST_VENDOR_HCE }
+            val target = ByteArray(size) { (it + 1).toByte() }
+            api.beforeProgram = { assertNotNull(store.snapshot) }
+            MotorolaStNfcController.change(api, store, "honor/firmware", target, true, report)
+            assertArrayEquals(target, api.values[0x33])
+            MotorolaStNfcController.change(api, store, "honor/firmware", target, false, report)
+            assertEquals(original, RawNciCodec.encodeConfiguration(api.values))
+            assertNull(store.snapshot)
+            assertTrue(report.formatDetailed().contains("HONOR ST VENDOR HCE"))
+        }
+    }
+
+    @Test
+    fun honorSilentFailureRetainsItsOwnRollbackEvidenceAndBlocksUnsafeFallback() {
+        val api = FakeApi().apply { ignoreActivation = true; failDisable = true }
+        val store = MemoryStore()
+        val report = report().apply { path = OemOperationReport.Path.HONOR_ST_VENDOR_HCE }
+        expectFailure {
+            MotorolaStNfcController.tryFirst(true,
+                { MotorolaStNfcController.change(api, store, "honor/firmware", uid, true, report) },
+                { store.snapshot != null }, report)
+        }
+        assertEquals(OemOperationReport.Path.HONOR_ST_VENDOR_HCE, report.stRollback.path)
+        assertNotNull(store.snapshot)
+        assertFalse(report.rollbackSucceeded)
+        assertTrue(report.formatDetailed().contains("readback mismatch"))
+        assertTrue(report.formatDetailed().contains("disable failed"))
+        assertFalse(report.formatDetailed().contains("MOTOROLA ST VENDOR HCE"))
+    }
+
     private fun report() = OemOperationReport(OemOperationReport.Operation.ACTIVATE)
     private fun activate(api: FakeApi, store: MemoryStore, target: ByteArray = uid) = report().also {
         MotorolaStNfcController.change(api, store, firmware, target, true, it)
