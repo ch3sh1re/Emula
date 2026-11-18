@@ -29,6 +29,7 @@ do not establish 7- or 10-byte activation support.
 | Samsung Galaxy A16 | Android 16 QPR2 / One UI 8.5 | OEM activation confirmed, CTS Type-4A profile. |
 | OnePlus 15 CPH2747 | Android 16 / API 36 | Vendor `setHceTypeAConfig` activation confirmed with an external reader. |
 | Galaxy Watch9 SM-L355F | Android 17 / API 37, reported `L355FXXS1AZH4` | User confirmed a four-byte UID with an external reader on October 17, 2026, OEM path. |
+| Samsung Galaxy Watch SM-L705F | Android 16 / API 36, `L705FXXS3BZF4` | With firmware-specific Raw mode opt-in, a reader accepted a four-byte UID. After Stop, all six NFC parameters matched the saved values and ordinary NFC worked again. [User report #3](https://github.com/ch3sh1re/Emula/issues/3) |
 
 Additional working-phone reports include Pixel 9, Pixel 10, Galaxy S23 Ultra,
 Galaxy S25 Ultra, and Sony Xperia 1 VI XQ-EC72. Complete firmware/reader details
