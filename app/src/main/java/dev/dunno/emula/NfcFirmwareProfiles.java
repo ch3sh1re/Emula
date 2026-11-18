@@ -18,12 +18,28 @@ final class NfcFirmwareProfiles {
         } else if ("e9c72611e850a8f323a7f47252b6360c91370573ed509b9476c80f95013a8b20".equals(sha256)) {
             source = "OPPO CPH2865 EEA 16.0.10.501(EX01) / NfcNci";
             finding = oplusGates();
+        } else if ("0c92a11302dfe4e25c4472b156c823c2ddc67f724279cded22b07dd102ad6af9".equals(sha256)) {
+            source = "OnePlus 11 CPH2447 India 16.0.5.1301(EX01) / NfcNci";
+            finding = "The service forwards raw configuration requests to the device host. "
+                    + "For a failed startup restore, check the controller response in LAST NFC OPERATION.";
+        } else if ("f23dfaf598ba23e20c67f09518b019fd8ea593e0659ca01b24beb20f625e5985".equals(sha256)) {
+            source = "OnePlus 12 CPH2573 India 17.0.0.100(EX01) / NfcNci";
+            finding = androidOemReadback();
+        } else if ("98f4b26ef2dbf8b33edb17cca5400dd2061cbe907f3fd2ae2443584ff14a423b".equals(sha256)) {
+            source = "LineageOS 24.0 astonc 20261113 / NfcNciApex";
+            finding = androidOemReadback();
         } else {
             return "Public NFC APK match: none established\n";
         }
         return "Public NFC APK match: " + source + "\n"
                 + "Reviewed service behavior: " + finding + "\n"
                 + "Match covers APK bytes only, not the whole firmware, loaded native libraries or hardware.\n";
+    }
+
+    private static String androidOemReadback() {
+        return "Android OEM activation calls the device host and reapplies routing. "
+                + "Status 0 does not report individual controller writes. "
+                + "Compare the activation readback with an external reader result.";
     }
 
     private static String oplusGates() {
