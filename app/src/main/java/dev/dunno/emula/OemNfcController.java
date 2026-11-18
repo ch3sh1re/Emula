@@ -161,6 +161,11 @@ final class OemNfcController {
                     }
                     report.notes.add("OnePlus vendor HCE unavailable; trying Android OEM API: "
                             + describe(unavailable));
+                } catch (Exception denied) {
+                    if (!OnePlusVendorNfcController.isPermissionDenied(denied)
+                            || OnePlusVendorNfcController.hasPendingRestore(context)) throw denied;
+                    report.vendorResolutionFailure = describe(denied);
+                    report.notes.add("OnePlus service denied access before configuration changed. Trying the Android OEM API.");
                 }
             }
 

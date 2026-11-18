@@ -36,6 +36,8 @@ distribution/
 .aws/
 docs/history/
 diagnostics/
+/user-artifacts/
+/reports/
 captures/
 watch-evidence/
 nfc-diagnostics*.txt
