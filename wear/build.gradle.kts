@@ -23,6 +23,7 @@ val syncWatchSources by tasks.registering(Sync::class) {
             "dev/dunno/emula/MotorolaStNfcController.java",
             "dev/dunno/emula/HonorStNfcController.java",
             "dev/dunno/emula/LegacyNfcController.java",
+            "dev/dunno/emula/OnePlus11Recovery.java",
             "dev/dunno/emula/LegacyNfcDiagnostics.java",
             "dev/dunno/emula/RawNciCodec.java",
             "dev/dunno/emula/RawNfcDeviceCatalog.java",
