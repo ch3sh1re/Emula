@@ -43,6 +43,8 @@ and internal release evidence are excluded from public source. See
 - `OnePlusVendorNfcController`: scoped vendor HCE path with saved-state recovery.
 - `MotorolaStNfcController`: separate opt-in experiment and Boston raw compatibility
   candidate. Preserve their distinct build flags and restoration behavior.
+- `OnePlusRecoveryTest` covers fresh permission denial, pending recovery,
+  restoration failure and the readback check used to clear a saved snapshot.
 - `HonorStNfcController`: REA-NX9 ST candidate, service/chip checks, durable snapshot
   and readback. NXP identification excludes ST. `HonorStNfcControllerTest` owns policy.
 - `XiaomiNfcController`, `XiaomiNxpConfig`: garnet/diting/tanzanite NXP trials.
