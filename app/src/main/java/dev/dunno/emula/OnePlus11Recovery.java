@@ -42,55 +42,36 @@ final class OnePlus11Recovery {
         return original;
     }
 
-    static void observeLegacyReset(LegacyNfcController.ConfigurationIo session,
-            RawOperationReport report, LegacyNfcController.CheckedAction reset) throws Exception {
-        report.notes.add("Older recovery record has no pre-activation snapshot. "
-                + "Current values are observations only.");
-        Map<Integer, byte[]> before = observe(session, report, "BEFORE_LEGACY_RESET");
-        try {
-            reset.run();
-        } catch (Exception failure) {
-            report.result = "LEGACY_RESET_FAILED_WITHOUT_BASELINE";
-            if (before != null && !Thread.currentThread().isInterrupted()
-                    && Boolean.TRUE.equals(report.resumeSucceeded)) {
-                try {
-                    Map<Integer, byte[]> after = observe(session, report, "AFTER_FAILED_LEGACY_RESET");
-                    if (after != null) {
-                        StringBuilder changes = new StringBuilder();
-                        for (int id : OBSERVED_PARAMETERS) {
-                            if (!Arrays.equals(before.get(id), after.get(id))) {
-                                if (changes.length() > 0) changes.append(", ");
-                                changes.append("0x").append(Integer.toHexString(id));
-                            }
-                        }
-                        report.notes.add(changes.length() == 0
-                                ? "All seven observed parameters match the pre-reset read."
-                                : "Parameters differing between the two reads: " + changes);
-                    }
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    failure.addSuppressed(interrupted);
-                }
-            }
-            throw failure;
-        }
+    // The two reads reported for this build agreed on these seven bytes/fields.
+    // This is a post-boot compatibility check, never a payload or a saved original.
+    private static final byte[][] REPORTED_VALUES = {
+            {4}, {0}, {0x20}, {8, 0, 0, 0}, {0x74}, {}, {1}
+    };
+
+    static boolean oldRecord(String firmware, boolean pending, boolean unverified,
+            boolean hasSnapshotFirmware) {
+        return FIRMWARE.equals(firmware) && pending && !unverified && !hasSnapshotFirmware;
     }
 
-    private static Map<Integer, byte[]> observe(LegacyNfcController.ConfigurationIo session,
-            RawOperationReport report, String stage) throws InterruptedException {
-        try {
-            Map<Integer, byte[]> values = session.readConfiguration(OBSERVED_PARAMETERS,
-                    report, report.operation, report.candidate, stage);
-            for (int id : OBSERVED_PARAMETERS) {
-                if (values.get(id) == null) throw new IllegalStateException("Incomplete readback");
+    static void checkAfterRestart(int firstBoot, int currentBoot, RawOperationReport report,
+            SnapshotReader probe) throws Exception {
+        if (currentBoot < 0 || firstBoot < 0 || currentBoot < firstBoot) {
+            report.result = "RESTART_UNVERIFIED";
+            throw new IllegalStateException("Could not verify the phone's restart. The recovery record was kept.");
+        }
+        if (firstBoot == currentBoot) {
+            report.result = "RESTART_REQUIRED";
+            throw new IllegalStateException("Restart your phone once, then open Emula with NFC on.");
+        }
+        report.stage = "CHECK_AFTER_RESTART";
+        report.result = "POST_BOOT_READ_UNVERIFIED";
+        Map<Integer, byte[]> values = probe.read();
+        for (int i = 0; i < OBSERVED_PARAMETERS.length; i++) {
+            if (values == null || !Arrays.equals(REPORTED_VALUES[i], values.get(OBSERVED_PARAMETERS[i]))) {
+                report.result = "POST_BOOT_PROFILE_MISMATCH";
+                throw new IllegalStateException("NFC settings after restart differ from the reviewed profile. "
+                        + "The recovery record was kept.");
             }
-            return values;
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw interrupted;
-        } catch (Exception unavailable) {
-            report.notes.add(stage + " unavailable: " + unavailable.getMessage());
-            return null;
         }
     }
 }

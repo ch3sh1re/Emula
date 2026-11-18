@@ -291,6 +291,12 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
 
     private void rawChange(SavedCard card, RawOperationReport.Operation operation,
             boolean unverified, boolean probeBeforeWrite) throws Exception {
+        if (card == null && OnePlus11Recovery.oldRecord(Build.FINGERPRINT,
+                legacy.getBoolean("pending_restore", false), unverified,
+                legacy.contains("catalog_snapshot_firmware"))) {
+            recoverOnePlus11LegacyRecord(operation);
+            return;
+        }
         String previousId = activeId();
         SavedCard previous = QuickCardPolicy.find(cards(), previousId);
         Map<Integer, byte[]> original = null;
@@ -377,8 +383,56 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
     }
 
+    private void recoverOnePlus11LegacyRecord(RawOperationReport.Operation operation) throws Exception {
+        RawOperationReport report = new RawOperationReport(operation);
+        report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
+        report.stage = "CHECK_LEGACY_RECORD";
+        try {
+            if (legacy.contains("original_configuration")) {
+                throw new IllegalStateException("Unidentified saved NFC configuration. Recovery was left pending.");
+            }
+            int boot = android.provider.Settings.Global.getInt(context.getContentResolver(),
+                    android.provider.Settings.Global.BOOT_COUNT, -1);
+            int firstBoot = legacy.getInt("oneplus11_pending_boot", -1);
+            if (firstBoot == -1 && boot >= 0) {
+                if (!legacy.edit().putInt("oneplus11_pending_boot", boot).commit()) {
+                    throw new IllegalStateException("Could not save the restart checkpoint.");
+                }
+                firstBoot = boot;
+            }
+            OnePlus11Recovery.checkAfterRestart(firstBoot, boot, report, () -> {
+                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
+                if (probe.report != null) report.requests.addAll(probe.report.requests);
+                if (probe.report == null || !"OK".equals(probe.report.result)) {
+                    throw new IllegalStateException("Could not read every NFC setting. Recovery was left pending.");
+                }
+                return probe.configuration;
+            });
+            // The old format stored only the pending flag. Preserve it as an archive and
+            // retire it atomically. It cannot establish the user's pre-activation values.
+            if (!legacy.edit().putString("oneplus11_archived_legacy_record", Build.FINGERPRINT)
+                    .putBoolean("pending_restore", false).remove("oneplus11_pending_boot").commit()) {
+                legacy.edit().putBoolean("pending_restore", true)
+                        .putInt("oneplus11_pending_boot", firstBoot).apply();
+                throw new IllegalStateException("Could not archive the pending NFC record.");
+            }
+            report.result = "OLD_RECORD_ARCHIVED_AFTER_RESTART";
+            report.stage = "COMPLETE";
+            report.notes.add("The seven observed settings match the reviewed post-restart check. "
+                    + "Original pre-activation values were unavailable. No controller write was issued.");
+            CardSession.clearActiveCard();
+        } catch (Exception failure) {
+            report.primaryFailure = failure.getMessage();
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, true, failure);
+        } finally {
+            LegacyNfcController.recordOperation(report);
+        }
+    }
+
     private void saveLegacy(boolean pending, boolean unverified, Map<Integer, byte[]> original) {
-        SharedPreferences.Editor edit = legacy.edit().putBoolean("pending_restore", pending)
+        SharedPreferences.Editor edit = legacy.edit().remove("oneplus11_pending_boot")
+                .putBoolean("pending_restore", pending)
                 .putBoolean("pending_unverified", pending && unverified);
         if (pending && original != null) {
             edit.putString("original_configuration", RawNciCodec.encodeConfiguration(original));
