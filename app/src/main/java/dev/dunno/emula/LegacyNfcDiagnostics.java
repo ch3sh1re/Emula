@@ -3,7 +3,6 @@ package dev.dunno.emula;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.nfc.NfcAdapter;
-import android.os.Build;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -34,12 +33,6 @@ final class LegacyNfcDiagnostics {
 
     private LegacyNfcDiagnostics() {}
 
-    static boolean observesFailedResponse(String manufacturer, String model, String fingerprint) {
-        return "HONOR".equalsIgnoreCase(manufacturer) && "REA-NX9".equalsIgnoreCase(model)
-                && ("HONOR/REA-NX9/HNREA:15/HONORREA-N39/"
-                + "9.0.0.206C185E9R2P1:user/release-keys").equals(fingerprint);
-    }
-
     static boolean isRawNciApiAvailable(Context context) {
         try {
             resolveApi(context);
@@ -69,7 +62,7 @@ final class LegacyNfcDiagnostics {
         report.stage = "COMPLETE";
         if (values.isEmpty()) {
             report.result = "FAILED";
-            report.primaryFailure = "No requested parameters could be read";
+            report.primaryFailure = "No requested parameters could be validated";
         } else if (missing.isEmpty()) {
             report.result = "OK";
         } else {
@@ -151,18 +144,16 @@ final class LegacyNfcDiagnostics {
     }
 
     static Map<Integer, byte[]> receiveGetConfig(RawOperationReport report,
-            RawOperationReport.RequestRecord request, ResponseReceiver receiver,
-            boolean observeFailedResponse) throws InterruptedException {
+            RawOperationReport.RequestRecord request, ResponseReceiver receiver) throws InterruptedException {
         boolean failed = request.frameworkStatus != TRANSPORT_OK;
         if (failed) {
             request.failure = "framework " + RawNciCodec.frameworkStatusName(request.frameworkStatus);
-            if (!observeFailedResponse || request.frameworkStatus != 3) {
+            if (request.frameworkStatus != 3) {
                 throw new IllegalStateException(request.failure);
             }
-            // This firmware holds the service monitor while awaiting a worker that needs
-            // the same monitor to deliver a successful native response. Keep the callback
-            // registered briefly after FAILED, but never turn that evidence into a snapshot.
-            report.notes.add("HONOR service timeout observation: waiting up to 1000 ms "
+            // Passive observation only: no extra command and no device-specific writer.
+            // A late response does not establish the cause or authorize a snapshot.
+            report.notes.add("Framework failure observation: waiting up to 1000 ms "
                     + "after framework FAILED for a delayed GET_CONFIG response.");
         }
         byte[] response = receiver.await(failed
@@ -190,12 +181,12 @@ final class LegacyNfcDiagnostics {
         }
     }
 
-    private static String formatProbe(RawOperationReport report,
+    static String formatProbe(RawOperationReport report,
             Map<Integer, byte[]> values, List<Integer> missing, boolean detailed) {
         StringBuilder text = new StringBuilder("READ-ONLY PROBE\n\n");
         text.append("Operation: DIAGNOSTIC_GET_CONFIG\n");
         text.append("Result: ").append(report.result).append('\n');
-        text.append("Parameters:\n");
+        text.append("Parameters (validated):\n");
         if (values.isEmpty()) {
             text.append("none\n");
         } else {
@@ -213,7 +204,7 @@ final class LegacyNfcDiagnostics {
             }
         }
         if (!missing.isEmpty()) {
-            text.append("Not returned: ");
+            text.append("Not validated: ");
             for (int i = 0; i < missing.size(); i++) {
                 if (i > 0) text.append(", ");
                 text.append(String.format(Locale.US, "0x%02X", missing.get(i)));
@@ -254,7 +245,66 @@ final class LegacyNfcDiagnostics {
         if (detailed && request.durationMillis != null) {
             text.append("Duration: ").append(request.durationMillis).append(" ms\n");
         }
+        if (detailed) {
+            appendTiming(text, "Framework return after", request.frameworkReturnElapsedNanos);
+            appendTiming(text, "Response callback after", request.callbackElapsedNanos);
+            if (request.frameworkReturnElapsedNanos != null && request.callbackElapsedNanos != null) {
+                appendTiming(text, "Callback minus framework return",
+                        request.callbackElapsedNanos - request.frameworkReturnElapsedNanos);
+            }
+        }
+        if (Integer.valueOf(3).equals(request.frameworkStatus) && request.rx != null) {
+            // Decode for display only. Failed transport must never populate ProbeResult.configuration.
+            try {
+                Map<Integer, byte[]> observed = RawNciCodec.parseGetConfigResponse(request.rx);
+                text.append("Observed parameters (framework FAILED; evidence only):\n");
+                for (Map.Entry<Integer, byte[]> entry : observed.entrySet()) {
+                    text.append(String.format(Locale.US, "0x%02X %s = %s\n",
+                            entry.getKey(), RawNciCodec.parameterName(entry.getKey()),
+                            RawNciCodec.hex(entry.getValue())));
+                }
+                text.append("Excluded from the configuration snapshot; cannot authorize writes.\n");
+            } catch (IllegalArgumentException invalid) {
+                text.append("Observed response not decoded: ").append(invalid.getMessage()).append('\n');
+            }
+        }
         if (request.failure != null) text.append("Failure: ").append(request.failure).append('\n');
+    }
+
+    private static void appendTiming(StringBuilder text, String label, Long nanos) {
+        if (nanos != null) {
+            text.append(String.format(Locale.US, "%s: %.3f ms\n", label, nanos / 1_000_000.0));
+        }
+    }
+
+    /** A callback belongs to the active observation only; retain its first matching response. */
+    static final class PendingResponse {
+        private final long startNanos;
+        private final CountDownLatch ready = new CountDownLatch(1);
+        private byte[] payload;
+        private Long elapsedNanos;
+        private boolean closed;
+
+        PendingResponse(long startNanos) { this.startNanos = startNanos; }
+
+        synchronized void record(int gid, int oid, byte[] response, long nowNanos) {
+            if (closed || elapsedNanos != null || gid != CORE_GID || oid != CORE_GET_CONFIG_OID) return;
+            payload = response == null ? new byte[0] : Arrays.copyOf(response, response.length);
+            elapsedNanos = nowNanos - startNanos;
+            ready.countDown();
+        }
+
+        byte[] await(long timeoutMillis) throws InterruptedException {
+            if (!ready.await(timeoutMillis, TimeUnit.MILLISECONDS)) return null;
+            synchronized (this) {
+                return Arrays.copyOf(payload, payload.length);
+            }
+        }
+
+        synchronized void finish(RawOperationReport.RequestRecord request) {
+            closed = true;
+            request.callbackElapsedNanos = elapsedNanos;
+        }
     }
 
     private static byte[] buildGetPayload(int[] ids) {
@@ -290,8 +340,7 @@ final class LegacyNfcDiagnostics {
     private static final class DiagnosticSession implements AutoCloseable {
         final RawNciApi api;
         final Object callback;
-        volatile CountDownLatch responseReady;
-        volatile byte[] responsePayload;
+        volatile PendingResponse pendingResponse;
 
         private DiagnosticSession(RawNciApi api, Object callback) {
             this.api = api;
@@ -311,14 +360,10 @@ final class LegacyNfcDiagnostics {
                 }
                 DiagnosticSession session = holder[0];
                 if (session != null && "onVendorNciResponse".equals(method.getName())
-                        && arguments != null && arguments.length == 3
-                        && (Integer) arguments[0] == CORE_GID
-                        && (Integer) arguments[1] == CORE_GET_CONFIG_OID) {
-                    byte[] payload = (byte[]) arguments[2];
-                    session.responsePayload = payload == null
-                            ? new byte[0] : Arrays.copyOf(payload, payload.length);
-                    CountDownLatch latch = session.responseReady;
-                    if (latch != null) latch.countDown();
+                        && arguments != null && arguments.length == 3) {
+                    PendingResponse pending = session.pendingResponse;
+                    if (pending != null) pending.record((Integer) arguments[0],
+                            (Integer) arguments[1], (byte[]) arguments[2], System.nanoTime());
                 }
                 return null;
             };
@@ -337,29 +382,28 @@ final class LegacyNfcDiagnostics {
                     RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG,
                     null, stage, "GET_CONFIG", payload);
             long startNanos = System.nanoTime();
-            responsePayload = null;
-            responseReady = new CountDownLatch(1);
+            PendingResponse pending = new PendingResponse(startNanos);
+            pendingResponse = pending;
             try {
                 Object result = invoke(api.adapter, api.sendMethod,
                         MESSAGE_TYPE_COMMAND, CORE_GID, CORE_GET_CONFIG_OID,
                         Arrays.copyOf(payload, payload.length));
+                request.frameworkReturnElapsedNanos = System.nanoTime() - startNanos;
                 if (!(result instanceof Integer)) {
                     request.failure = "unexpected framework return: " + result;
                     throw new IllegalStateException(request.failure);
                 }
                 request.frameworkStatus = (Integer) result;
-                return receiveGetConfig(report, request,
-                        timeout -> responseReady.await(timeout, TimeUnit.MILLISECONDS)
-                                ? responsePayload : null,
-                        observesFailedResponse(Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT));
+                return receiveGetConfig(report, request, pending::await);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 if (request.failure == null) request.failure = "interrupted";
                 throw interrupted;
             } finally {
+                pending.finish(request);
+                pendingResponse = null;
                 request.durationMillis = TimeUnit.NANOSECONDS.toMillis(
                         System.nanoTime() - startNanos);
-                responseReady = null;
             }
         }
 

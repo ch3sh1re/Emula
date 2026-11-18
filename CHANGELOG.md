@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Include NFC package and library fingerprints in prepared phone reports, even
+  when NFC is unavailable. Identify reviewed Xiaomi and OPPO service builds.
+- Record framework and callback timing for read-only NFC requests. A late
+  controller reply after a framework failure remains available for diagnosis.
+
 ## Wear OS 1.0.4 (10005)
 
 - Offer an experimental raw NFC fallback on Android 15+ watches, including unknown

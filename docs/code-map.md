@@ -59,10 +59,13 @@ and internal release evidence are excluded from public source. See
   `OemOperationReport` keep request/status evidence and separate rollback errors.
 - `LegacyNfcDiagnostics`: GET-only preparation. `collectConfiguration` falls back
   from batch to singles only after explicit controller rejection, stopping after
-  transport failure/timeout. On scoped HONOR firmware, `observesFailedResponse`
-  allows another second for late callbacks. `receiveGetConfig` preserves FAILED
-  and never returns these responses as snapshot values. `LegacyNfcDiagnosticsTest`
-  covers delayed responses and the firmware monitor conflict.
+  timeout. On framework FAILED, the probe waits one additional second for a late
+  callback and keeps its payload and timing outside the configuration snapshot.
+  `LegacyNfcDiagnosticsTest` covers late, missing, malformed and duplicate replies.
+- Phone report preparation calls `NfcStackDiagnostics` on the NFC worker.
+  `NfcFileEvidence` bounds fingerprint collection. `NfcFirmwareProfiles`
+  identifies exact reviewed APKs. `OplusNfcDiagnostics` caches one read-only
+  vendor query per process, including while its result is pending.
 
 Never use raw SET as an inspection step. A build, GET or successful API call does
 not prove reader acceptance or ordinary NFC after restoration.
