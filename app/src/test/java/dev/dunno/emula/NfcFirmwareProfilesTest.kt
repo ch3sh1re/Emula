@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NfcFirmwareProfilesTest {
+    @Test fun onePlusFirmwareMatchesDistinguishRawRestoreFromOemActivation() {
+        val restore = NfcFirmwareProfiles.describe("0c92a11302dfe4e25c4472b156c823c2ddc67f724279cded22b07dd102ad6af9")
+        assertTrue(restore.contains("CPH2447"))
+        assertTrue(restore.contains("startup restore"))
+        for ((hash, source) in mapOf(
+            "f23dfaf598ba23e20c67f09518b019fd8ea593e0659ca01b24beb20f625e5985" to "CPH2573",
+            "98f4b26ef2dbf8b33edb17cca5400dd2061cbe907f3fd2ae2443584ff14a423b" to "astonc 20261113"
+        )) {
+            val result = NfcFirmwareProfiles.describe(hash)
+            assertTrue(result.contains(source))
+            assertTrue(result.contains("Status 0 does not report individual controller writes"))
+            assertEquals("Public NFC APK match: none established\n", NfcFirmwareProfiles.describe(hash.drop(1)))
+        }
+    }
+
     @Test fun onlyTheCompleteReviewedApkHashEstablishesTheXiaomiStub() {
         val hash = "76fe9301e5d6bb35e4a4cef31804c27a4fa473fe0ff89951e21ebb196a300ced"
         val result = NfcFirmwareProfiles.describe(hash)
