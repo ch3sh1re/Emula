@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Retain existing OnePlus recovery records across permission failures and firmware
+  changes. A fresh denial before configuration changes can use the Android OEM API.
+  Recovery can finish without rewriting settings when both metadata and controller
+  readback match the saved state.
+
 - Include NFC package and library fingerprints in prepared phone reports, even
   when NFC is unavailable. Identify reviewed Xiaomi and OPPO service builds.
 - Record framework and callback timing for read-only NFC requests. A late

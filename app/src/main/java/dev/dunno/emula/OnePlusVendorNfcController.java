@@ -10,6 +10,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.Objects;
 
 /** Model-scoped access to the OnePlus global HCE Type-A configuration API. */
 @SuppressLint("PrivateApi")
@@ -25,6 +27,7 @@ final class OnePlusVendorNfcController {
     private static final String PREF_UID = "uid";
     private static final int SNAPSHOT_VERSION = 1;
     private static final String NULL_VALUE = "\u0000";
+    private static final String SAFE_NFC_PERMISSION = "com.oplus.permission.safe.NFC";
 
     private static final String SETTING_MODE = "hce_access_card_mode";
     private static final String SETTING_ATQA = "hce_access_card_atqa";
@@ -63,13 +66,18 @@ final class OnePlusVendorNfcController {
         return preferences(context).getBoolean(PREF_PENDING, false);
     }
 
+    static boolean isPermissionDenied(Throwable failure) {
+        Throwable root = unwrap(failure);
+        return root instanceof SecurityException && root.getMessage() != null
+                && root.getMessage().contains(SAFE_NFC_PERMISSION);
+    }
+
     static Api resolveApi(Context context, OemOperationReport report)
             throws ResolutionException {
         if (!isTargetDevice()) {
             throw new ResolutionException(Probe.notTargeted(),
                     "OnePlus vendor HCE is not enabled for this device");
         }
-
         Class<?> adapterClass;
         try {
             adapterClass = Class.forName(
@@ -125,6 +133,11 @@ final class OnePlusVendorNfcController {
 
     static void setCardEnabled(Context context, Api api, byte[] uid, boolean enable,
             OemOperationReport report) throws Exception {
+        setCardEnabled(new AndroidPlatform(context, api), uid, enable, report);
+    }
+
+    static void setCardEnabled(Platform platform, byte[] uid, boolean enable,
+            OemOperationReport report) throws Exception {
         report.path = OemOperationReport.Path.ONEPLUS_VENDOR_HCE;
         report.profile = "cts-type-4a / OnePlus vendor HCE";
         report.atqa = OemOperationReport.copy(CTS_ATQA);
@@ -135,24 +148,27 @@ final class OnePlusVendorNfcController {
         report.vendorMethodResolved = true;
 
         if (enable) {
-            activate(context, api, uid, report);
+            activate(platform, uid, report);
         } else {
-            restore(context, api, report, false);
+            restore(platform, report, false);
         }
     }
 
-    private static void activate(Context context, Api api, byte[] uid,
+    private static void activate(Platform platform, byte[] uid,
             OemOperationReport report) throws Exception {
         report.stage = "SNAPSHOT_ORIGINAL_STATE";
-        Snapshot existing = loadSnapshot(context);
+        Snapshot existing = platform.load();
         boolean capturedNow = existing == null;
-        Snapshot snapshot = capturedNow ? captureSnapshot(context) : existing;
+        Snapshot snapshot = capturedNow ? captureSnapshot(platform) : existing;
         report.snapshotState = capturedNow ? "CAPTURED_NOT_PERSISTED" : "REUSED_PENDING";
         report.originalGuardMode = printable(snapshot.mode);
-        addSnapshotFirmwareEvidence(report, snapshot);
+        addSnapshotFirmwareEvidence(report, snapshot, platform.fingerprint());
         validateSnapshot(snapshot);
+        if (!Objects.equals(snapshot.fingerprint, platform.fingerprint())) {
+            throw new IllegalStateException("Pending OnePlus state belongs to another firmware; snapshot retained");
+        }
         if (capturedNow) {
-            persistSnapshot(context, snapshot);
+            platform.save(snapshot);
             report.snapshotState = "CAPTURED";
         }
 
@@ -160,26 +176,26 @@ final class OnePlusVendorNfcController {
         try {
             report.stage = "VENDOR_SET_HCE_TYPE_A";
             invocationStarted = true;
-            boolean accepted = invoke(api, true, CTS_ATQA, CTS_SAK, uid);
+            boolean accepted = platform.invoke(true, CTS_ATQA, CTS_SAK, uid);
             report.vendorCallSucceeded = accepted;
-            report.guardModeAfterVendorCall = printable(readSetting(context, SETTING_MODE));
+            report.guardModeAfterVendorCall = printable(platform.read(SETTING_MODE));
             if (!accepted) {
                 throw new IllegalStateException(
                         "OnePlus setHceTypeAConfig returned false");
             }
 
             report.stage = "NEUTRALIZE_RF_GUARD";
-            boolean guardUpdated = writeSetting(context, SETTING_MODE, "0");
-            report.guardModeAfterNeutralize = printable(readSetting(context, SETTING_MODE));
+            boolean guardUpdated = platform.write(SETTING_MODE, "0");
+            report.guardModeAfterNeutralize = printable(platform.read(SETTING_MODE));
             report.guardNeutralized = guardUpdated
-                    && "0".equals(readSetting(context, SETTING_MODE));
+                    && "0".equals(platform.read(SETTING_MODE));
             if (!Boolean.TRUE.equals(report.guardNeutralized)) {
                 throw new IllegalStateException(
                         "Could not neutralize OnePlus HCE access-card RF guard");
             }
 
             report.stage = "RESTORE_ORIGINAL_METADATA";
-            report.originalMetadataRestored = restoreMetadata(context, snapshot);
+            report.originalMetadataRestored = restoreMetadata(platform, snapshot);
             if (!Boolean.TRUE.equals(report.originalMetadataRestored)) {
                 throw new IllegalStateException(
                         "Could not restore original OnePlus access-card metadata");
@@ -187,13 +203,20 @@ final class OnePlusVendorNfcController {
             report.result = "SUCCESS";
             report.stage = "COMPLETE";
         } catch (Throwable failure) {
-            if (!invocationStarted) {
-                if (capturedNow) clearSnapshot(context);
+            if (report.vendorCallSucceeded == null && isPermissionDenied(failure)) {
+                report.notes.add("Vendor permission denied before any HCE/settings change.");
+                if (capturedNow) {
+                    if (!platform.clear()) throw new IllegalStateException(
+                            "Vendor access was denied but the recovery marker could not be cleared", failure);
+                    report.snapshotState = "CLEARED_AFTER_PERMISSION_DENIAL";
+                }
+            } else if (!invocationStarted) {
+                if (capturedNow) platform.clear();
             } else if (Boolean.FALSE.equals(report.vendorCallSucceeded)) {
-                if (capturedNow) clearSnapshot(context);
+                if (capturedNow) platform.clear();
             } else {
                 try {
-                    restore(context, api, report, true);
+                    restore(platform, report, true);
                 } catch (Throwable rollbackFailure) {
                     report.rollbackFailure = describe(rollbackFailure);
                 }
@@ -202,10 +225,10 @@ final class OnePlusVendorNfcController {
         }
     }
 
-    private static void restore(Context context, Api api, OemOperationReport report,
+    private static void restore(Platform platform, OemOperationReport report,
             boolean rollback) throws Exception {
         report.stage = "LOAD_ORIGINAL_STATE";
-        Snapshot snapshot = loadSnapshot(context);
+        Snapshot snapshot = platform.load();
         if (snapshot == null) {
             if (rollback) {
                 report.rollbackAttempted = false;
@@ -221,35 +244,64 @@ final class OnePlusVendorNfcController {
         validateSnapshot(snapshot);
         report.snapshotState = rollback ? "ROLLBACK_PENDING" : "RESTORE_PENDING";
         report.originalGuardMode = printable(snapshot.mode);
-        addSnapshotFirmwareEvidence(report, snapshot);
+        addSnapshotFirmwareEvidence(report, snapshot, platform.fingerprint());
+        if (!Objects.equals(snapshot.fingerprint, platform.fingerprint())) {
+            throw new IllegalStateException("Pending OnePlus state belongs to another firmware; snapshot retained");
+        }
         if (rollback) report.rollbackAttempted = true;
 
         try {
+            // Old versions persisted a marker before the vendor permission check. Clear it
+            // only with matching firmware, settings AND independent controller readback.
+            if (originalSettingsMatch(snapshot, captureSnapshot(platform))) {
+                report.stage = "CHECK_ORIGINAL_VENDOR_STATE";
+                Map<Integer, byte[]> current = null;
+                try {
+                    current = platform.configuration(report);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw interrupted;
+                } catch (Exception unavailable) {
+                    report.notes.add("Could not prove original state read-only; vendor restore remains required: "
+                            + describe(unavailable));
+                }
+                if (originalConfigurationMatches(snapshot, current)) {
+                    if (!platform.clear()) throw new IllegalStateException("Could not clear OnePlus recovery marker");
+                    report.snapshotState = "ORIGINAL_STATE_ALREADY_PRESENT";
+                    report.notes.add("Original settings and Listen-A values match; no vendor setter was called.");
+                    if (rollback) report.rollbackSucceeded = true;
+                    else {
+                        report.result = "ORIGINAL_STATE_ALREADY_PRESENT";
+                        report.stage = "COMPLETE";
+                    }
+                    return;
+                }
+            }
             report.stage = rollback ? "ROLLBACK_VENDOR_STATE" : "RESTORE_VENDOR_STATE";
             boolean originalEnabled = "1".equals(snapshot.mode);
             boolean accepted;
             if (originalEnabled) {
-                accepted = invoke(api, true,
+                accepted = platform.invoke(true,
                         parseHexSetting(snapshot.atqa, 2),
                         parseHexSetting(snapshot.sak, 1),
                         parseHexSetting(snapshot.uid, 4, 7, 10));
             } else {
-                accepted = invoke(api, false, null, null, null);
+                accepted = platform.invoke(false, null, null, null);
             }
             if (!rollback) {
                 report.vendorCallSucceeded = accepted;
                 report.guardModeAfterVendorCall =
-                        printable(readSetting(context, SETTING_MODE));
+                        printable(platform.read(SETTING_MODE));
             }
             if (!accepted) {
                 throw new IllegalStateException(
                         "OnePlus rejected restoration of the original HCE state");
             }
-            if (!restoreAllSettings(context, snapshot)) {
+            if (!restoreAllSettings(platform, snapshot)) {
                 throw new IllegalStateException(
                         "Could not restore original OnePlus HCE settings");
             }
-            if (!clearSnapshot(context)) {
+            if (!platform.clear()) {
                 throw new IllegalStateException(
                         "Original HCE state was restored but the pending marker remains");
             }
@@ -284,13 +336,13 @@ final class OnePlusVendorNfcController {
         return (Boolean) result;
     }
 
-    private static Snapshot captureSnapshot(Context context) {
+    private static Snapshot captureSnapshot(Platform platform) {
         return new Snapshot(
-                readSetting(context, SETTING_MODE),
-                readSetting(context, SETTING_ATQA),
-                readSetting(context, SETTING_SAK),
-                readSetting(context, SETTING_UID),
-                Build.FINGERPRINT);
+                platform.read(SETTING_MODE),
+                platform.read(SETTING_ATQA),
+                platform.read(SETTING_SAK),
+                platform.read(SETTING_UID),
+                platform.fingerprint());
     }
 
     private static void validateSnapshot(Snapshot snapshot) {
@@ -301,18 +353,36 @@ final class OnePlusVendorNfcController {
         parseHexSetting(snapshot.uid, 4, 7, 10);
     }
 
-    private static boolean restoreMetadata(Context context, Snapshot snapshot) {
-        boolean atqa = writeSetting(context, SETTING_ATQA, snapshot.atqa);
-        boolean sak = writeSetting(context, SETTING_SAK, snapshot.sak);
-        boolean uid = writeSetting(context, SETTING_UID, snapshot.uid);
+    private static boolean originalSettingsMatch(Snapshot saved, Snapshot current) {
+        return "1".equals(saved.mode) && saved.fingerprint != null
+                && saved.fingerprint.equals(current.fingerprint)
+                && Objects.equals(saved.mode, current.mode)
+                && Objects.equals(saved.atqa, current.atqa)
+                && Objects.equals(saved.sak, current.sak)
+                && Objects.equals(saved.uid, current.uid);
+    }
+
+    private static boolean originalConfigurationMatches(Snapshot saved, Map<Integer, byte[]> config) {
+        if (config == null) return false;
+        byte[] atqa = parseHexSetting(saved.atqa, 2);
+        return Arrays.equals(new byte[] {atqa[0]}, config.get(0x30))
+                && Arrays.equals(new byte[] {atqa[1]}, config.get(0x31))
+                && Arrays.equals(parseHexSetting(saved.sak, 1), config.get(0x32))
+                && Arrays.equals(parseHexSetting(saved.uid, 4, 7, 10), config.get(0x33));
+    }
+
+    private static boolean restoreMetadata(Platform platform, Snapshot snapshot) {
+        boolean atqa = platform.write(SETTING_ATQA, snapshot.atqa);
+        boolean sak = platform.write(SETTING_SAK, snapshot.sak);
+        boolean uid = platform.write(SETTING_UID, snapshot.uid);
         return atqa && sak && uid;
     }
 
-    private static boolean restoreAllSettings(Context context, Snapshot snapshot) {
-        boolean atqa = writeSetting(context, SETTING_ATQA, snapshot.atqa);
-        boolean sak = writeSetting(context, SETTING_SAK, snapshot.sak);
-        boolean uid = writeSetting(context, SETTING_UID, snapshot.uid);
-        boolean mode = writeSetting(context, SETTING_MODE, snapshot.mode);
+    private static boolean restoreAllSettings(Platform platform, Snapshot snapshot) {
+        boolean atqa = platform.write(SETTING_ATQA, snapshot.atqa);
+        boolean sak = platform.write(SETTING_SAK, snapshot.sak);
+        boolean uid = platform.write(SETTING_UID, snapshot.uid);
+        boolean mode = platform.write(SETTING_MODE, snapshot.mode);
         return atqa && sak && uid && mode;
     }
 
@@ -408,10 +478,10 @@ final class OnePlusVendorNfcController {
     }
 
     private static void addSnapshotFirmwareEvidence(
-            OemOperationReport report, Snapshot snapshot) {
+            OemOperationReport report, Snapshot snapshot, String fingerprint) {
         if (snapshot.fingerprint == null) return;
         report.notes.add("Snapshot firmware: " + snapshot.fingerprint);
-        if (!snapshot.fingerprint.equals(Build.FINGERPRINT)) {
+        if (!snapshot.fingerprint.equals(fingerprint)) {
             report.notes.add("Snapshot firmware differs from the current Build.FINGERPRINT");
         }
     }
@@ -488,7 +558,39 @@ final class OnePlusVendorNfcController {
         }
     }
 
-    private static final class Snapshot {
+    interface Platform {
+        String fingerprint();
+        String read(String name);
+        boolean write(String name, String value);
+        Snapshot load();
+        void save(Snapshot snapshot);
+        boolean clear();
+        boolean invoke(boolean enable, byte[] atqa, byte[] sak, byte[] uid) throws Exception;
+        Map<Integer, byte[]> configuration(OemOperationReport report) throws Exception;
+    }
+
+    private static final class AndroidPlatform implements Platform {
+        final Context context;
+        final Api api;
+
+        AndroidPlatform(Context context, Api api) { this.context = context; this.api = api; }
+        public String fingerprint() { return Build.FINGERPRINT; }
+        public String read(String name) { return readSetting(context, name); }
+        public boolean write(String name, String value) { return writeSetting(context, name, value); }
+        public Snapshot load() { return loadSnapshot(context); }
+        public void save(Snapshot snapshot) { persistSnapshot(context, snapshot); }
+        public boolean clear() { return clearSnapshot(context); }
+        public boolean invoke(boolean enable, byte[] atqa, byte[] sak, byte[] uid) throws Exception {
+            return OnePlusVendorNfcController.invoke(api, enable, atqa, sak, uid);
+        }
+        public Map<Integer, byte[]> configuration(OemOperationReport report) throws Exception {
+            LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
+            report.notes.add(probe.detailedSummary);
+            return probe.configuration;
+        }
+    }
+
+    static final class Snapshot {
         final String mode;
         final String atqa;
         final String sak;
