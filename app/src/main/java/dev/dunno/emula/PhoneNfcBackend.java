@@ -297,7 +297,20 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         Map<Integer, byte[]> sessionOriginal = null;
         boolean writeAttempted = false;
         try {
-            if (unverified) {
+            if (!unverified) {
+                try {
+                    original = OnePlus11Recovery.baseline(Build.FINGERPRINT,
+                            legacy.getString("catalog_snapshot_firmware", null),
+                            legacy.getBoolean("pending_restore", false), card != null, this::loadOriginal,
+                            () -> LegacyNfcDiagnostics.runReadOnlyProbe(context).configuration);
+                } catch (Exception failure) {
+                    RawOperationReport report = new RawOperationReport(operation);
+                    report.stage = "CHECK_RECOVERY_SNAPSHOT";
+                    LegacyNfcController.recordPreparationFailure(report, failure);
+                    throw failure;
+                }
+                sessionOriginal = original;
+            } else {
                 if (card != null && probeBeforeWrite) {
                     original = LegacyNfcDiagnostics.runReadOnlyProbe(context).configuration;
                     if (!LegacyNfcController.isCompleteExperimentalSnapshot(original)) {
@@ -367,9 +380,12 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     private void saveLegacy(boolean pending, boolean unverified, Map<Integer, byte[]> original) {
         SharedPreferences.Editor edit = legacy.edit().putBoolean("pending_restore", pending)
                 .putBoolean("pending_unverified", pending && unverified);
-        if (pending && unverified && original != null) {
+        if (pending && original != null) {
             edit.putString("original_configuration", RawNciCodec.encodeConfiguration(original));
         } else edit.remove("original_configuration");
+        if (pending && !unverified && original != null) {
+            edit.putString("catalog_snapshot_firmware", Build.FINGERPRINT);
+        } else edit.remove("catalog_snapshot_firmware");
         if (!edit.commit()) throw new IllegalStateException("Could not retain NFC recovery state");
     }
 
