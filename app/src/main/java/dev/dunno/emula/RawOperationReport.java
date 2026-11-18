@@ -34,6 +34,8 @@ final class RawOperationReport {
         Integer controllerStatus;
         List<Integer> reportedParameterIds = new ArrayList<>();
         Long durationMillis;
+        Long frameworkReturnElapsedNanos;
+        Long callbackElapsedNanos;
         String failure;
         String unexpectedResponse;
 
