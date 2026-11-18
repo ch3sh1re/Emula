@@ -61,6 +61,10 @@ final class LegacyNfcController {
         return lastOperationReport;
     }
 
+    static void recordOperation(RawOperationReport report) {
+        lastOperationReport = report;
+    }
+
     /** A scoped backend rejected preparation before entering any raw writer. */
     static void recordPreparationFailure(RawOperationReport report, Exception failure) {
         report.result = "PREPARATION_FAILED";
@@ -381,18 +385,16 @@ final class LegacyNfcController {
                         + "sent only LA_NFCID1 with an empty value");
             }
         } else {
-            CheckedAction reset = () -> executeWithPollingPaused(pollingControl, report, () -> {
+            if (OnePlus11Recovery.FIRMWARE.equals(Build.FINGERPRINT)
+                    && operation == RawOperationReport.Operation.STARTUP_PENDING_RESTORE) {
+                throw new IllegalStateException("Legacy recovery requires the read-only restart check.");
+            }
+            executeWithPollingPaused(pollingControl, report, () -> {
                 report.stage = "RESTORE_DEFAULT_CONFIG";
                 session.setConfig(defaultConfig(), report, operation,
                         RawOperationReport.Candidate.LEGACY_PROFILE,
                         "RESTORE_DEFAULT_CONFIG");
             });
-            if (operation == RawOperationReport.Operation.STARTUP_PENDING_RESTORE
-                    && OnePlus11Recovery.FIRMWARE.equals(Build.FINGERPRINT)) {
-                OnePlus11Recovery.observeLegacyReset(session, report, reset);
-            } else {
-                reset.run();
-            }
             report.result = "LEGACY_DEFAULTS_ACCEPTED";
         }
 

@@ -91,10 +91,17 @@ final class PhoneNfcRuntime {
 
     String pollingCapabilities(boolean rawApi) {
         android.app.Activity activity = pollingUi.attached();
+        String recovery = "";
+        if (OnePlus11Recovery.FIRMWARE.equals(android.os.Build.FINGERPRINT)) {
+            android.content.SharedPreferences legacy = context.getSharedPreferences("legacy_nfc", Context.MODE_PRIVATE);
+            recovery = "\nOnePlus 11 old recovery record archived after reboot: "
+                    + (OnePlus11Recovery.FIRMWARE.equals(legacy.getString("oneplus11_archived_legacy_record", null))
+                    ? "yes" : "no");
+        }
         return "Polling method (foreground): " + (!rawApi || activity == null ? "UNAVAILABLE"
                 : LegacyNfcController.pollingMethod(activity))
                 + "\nPolling method (background): " + (!rawApi ? "UNAVAILABLE"
-                : LegacyNfcController.pollingMethod(context));
+                : LegacyNfcController.pollingMethod(context)) + recovery;
     }
 
     PhoneNfcSession.Reason quickProblem(String id) {

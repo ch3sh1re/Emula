@@ -36,36 +36,41 @@ class OnePlus11RecoveryTest {
         }
     }
 
-    @Test fun failedLegacyResetReportsBothReadsAndPreservesTheControllerError() {
-        val operation = RawOperationReport.Operation.STARTUP_PENDING_RESTORE
-        for (after in listOf(values, values + (0x58 to byteArrayOf(0)))) {
-            val report = RawOperationReport(operation)
-            val stages = mutableListOf<String>()
-            val io = object : LegacyNfcController.ConfigurationIo {
-                override fun readConfiguration(ids: IntArray, r: RawOperationReport,
-                        op: RawOperationReport.Operation, candidate: RawOperationReport.Candidate?,
-                        stage: String): Map<Int, ByteArray> {
-                    assertEquals(values.keys, ids.toSet())
-                    stages.add(stage)
-                    return if (stages.size == 1) values else after
-                }
-                override fun setConfig(payload: ByteArray, r: RawOperationReport,
-                        op: RawOperationReport.Operation, candidate: RawOperationReport.Candidate?,
-                        stage: String) = error("Observation must be read-only")
+    @Test fun onlyFlagOnlyCataloguedRecordsOnTheReportedBuildUseRestartRecovery() {
+        assertTrue(OnePlus11Recovery.oldRecord(firmware, true, false, false))
+        assertFalse(OnePlus11Recovery.oldRecord("different", true, false, false))
+        assertFalse(OnePlus11Recovery.oldRecord(firmware, false, false, false))
+        assertFalse(OnePlus11Recovery.oldRecord(firmware, true, true, false))
+        assertFalse(OnePlus11Recovery.oldRecord(firmware, true, false, true))
+    }
+
+    @Test fun processRestartOrUnknownBootCannotRetireTheRecord() {
+        for ((first, current) in listOf(12 to 12, 12 to 11, -1 to 12, 12 to -1)) {
+            val report = RawOperationReport(RawOperationReport.Operation.STARTUP_PENDING_RESTORE)
+            assertThrows(IllegalStateException::class.java) {
+                OnePlus11Recovery.checkAfterRestart(first, current, report, unexpected)
             }
-            val rejected = IllegalStateException("INVALID_PARAM")
-            val failure = assertThrows(IllegalStateException::class.java) {
-                OnePlus11Recovery.observeLegacyReset(io, report) {
-                    stages.add("reset")
-                    report.resumeSucceeded = true
-                    throw rejected
-                }
-            }
-            assertSame(rejected, failure)
-            assertEquals(listOf("BEFORE_LEGACY_RESET", "reset", "AFTER_FAILED_LEGACY_RESET"), stages)
-            assertEquals("LEGACY_RESET_FAILED_WITHOUT_BASELINE", report.result)
-            assertTrue(report.notes.last().contains(if (after === values) "seven" else "0x58"))
+            assertEquals(if (first == current) "RESTART_REQUIRED" else "RESTART_UNVERIFIED", report.result)
         }
+    }
+
+    @Test fun onlyAnExactCompleteReadAfterBootCanRetireTheRecord() {
+        val report = RawOperationReport(RawOperationReport.Operation.STARTUP_PENDING_RESTORE)
+        var reads = 0
+        OnePlus11Recovery.checkAfterRestart(12, 13, report) { reads++; values }
+        assertEquals(1, reads)
+        for ((id, bytes) in values) {
+            for (incomplete in listOf(values - id, values + (id to bytes.plus(1.toByte())))) {
+                assertThrows(IllegalStateException::class.java) {
+                    OnePlus11Recovery.checkAfterRestart(12, 13, report) { incomplete }
+                }
+                assertEquals("POST_BOOT_PROFILE_MISMATCH", report.result)
+            }
+        }
+        val timeout = IllegalStateException("GET timeout")
+        assertSame(timeout, assertThrows(IllegalStateException::class.java) {
+            OnePlus11Recovery.checkAfterRestart(12, 13, report) { throw timeout }
+        })
     }
 
     @Test fun onlyScopedRecoverySkipsTheWriteWhenTheSavedValuesAreAlreadyPresent() {
