@@ -13,14 +13,90 @@ class LegacyNfcDiagnosticsTest {
     private val ids = listOf(0x30, 0x31, 0x32, 0x33, 0x58, 0x59, 0x85)
 
     @Test
-    fun lateResponseObservationIsLimitedToInspectedFirmware() {
-        val fingerprint = "HONOR/REA-NX9/HNREA:15/HONORREA-N39/9.0.0.206C185E9R2P1:user/release-keys"
-        assertTrue(LegacyNfcDiagnostics.observesFailedResponse("HONOR", "REA-NX9", fingerprint))
-        assertFalse(LegacyNfcDiagnostics.observesFailedResponse("HONOR", "REA-NX9",
-            fingerprint.replace(".206", ".205")))
-        assertFalse(LegacyNfcDiagnostics.observesFailedResponse("HONOR", "HNBRC-M1", fingerprint))
-        assertFalse(LegacyNfcDiagnostics.observesFailedResponse("OTHER", "REA-NX9", fingerprint))
-        assertFalse(LegacyNfcDiagnostics.observesFailedResponse(null, null, null))
+    fun lateResponseIsDecodedForEvidenceButNeverBecomesAWriteSnapshot() {
+        val response = "00 07 30 01 04 31 01 00 32 01 20 33 04 01 02 03 04 " +
+            "58 01 41 59 02 11 22 85 01 01"
+        val state = State()
+        state.collect { _, record ->
+            record.frameworkStatus = 3
+            record.frameworkReturnElapsedNanos = 3_000_000_000
+            record.callbackElapsedNanos = 3_001_100_000
+            LegacyNfcDiagnostics.receiveGetConfig(state.report, record, { timeout ->
+                assertEquals(1000L, timeout)
+                response.split(' ').map { it.toInt(16).toByte() }.toByteArray()
+            })
+        }
+        assertTrue(state.values.isEmpty())
+        assertEquals(ids, state.missing)
+        assertEquals(1, state.report.requests.size)
+        state.report.result = "FAILED"
+        val formatted = LegacyNfcDiagnostics.formatProbe(state.report, state.values, state.missing, true)
+        assertTrue(formatted.contains("Not validated:"))
+        assertTrue(formatted.contains("Observed parameters (framework FAILED; evidence only):"))
+        assertTrue(formatted.contains("0x33 LA_NFCID1 = 01 02 03 04"))
+        assertTrue(formatted.contains("Callback minus framework return: 1.100 ms"))
+        val result = LegacyNfcDiagnostics.ProbeResult(formatted, formatted, "FAILED", state.values)
+        assertFalse(LegacyNfcController.isCompleteExperimentalSnapshot(result.configuration))
+    }
+
+    @Test
+    fun malformedFailedResponseKeepsOriginalFailureAndCannotBreakReportFormatting() {
+        val state = State()
+        state.collect { _, record ->
+            record.frameworkStatus = 3
+            LegacyNfcDiagnostics.receiveGetConfig(state.report, record, { byteArrayOf(0, 1, 0x33, 4, 8) })
+        }
+        val text = LegacyNfcDiagnostics.formatProbe(state.report, state.values, state.missing, true)
+        assertTrue(text.contains("Observed response not decoded: truncated value"))
+        assertTrue(text.contains("Failure: framework FAILED"))
+        assertTrue(state.values.isEmpty())
+        assertEquals(1, state.report.requests.size)
+    }
+
+    @Test
+    fun callbackObservationKeepsFirstMatchingResponseAndCopiesBytes() {
+        val pending = LegacyNfcDiagnostics.PendingResponse(10_000)
+        val report = State().report
+        val record = report.addRequest(RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG,
+            null, "GET", "GET_CONFIG", byteArrayOf(1, 0x33))
+        pending.record(1, 3, byteArrayOf(1), 11_000)
+        pending.record(0, 2, byteArrayOf(2), 12_000)
+        assertNull(pending.await(0))
+        val bytes = byteArrayOf(0, 0)
+        pending.record(0, 3, bytes, 13_000)
+        bytes[0] = 9
+        pending.record(0, 3, byteArrayOf(9), 14_000)
+        assertArrayEquals(byteArrayOf(0, 0), pending.await(0))
+        pending.finish(record)
+        assertEquals(3_000L, record.callbackElapsedNanos)
+        pending.record(0, 3, byteArrayOf(8), 15_000)
+        assertArrayEquals(byteArrayOf(0, 0), pending.await(0))
+    }
+
+    @Test
+    fun closedObservationCannotReceiveLateCallbackAndFreshObservationStartsEmpty() {
+        val pending = LegacyNfcDiagnostics.PendingResponse(100)
+        val record = State().report.addRequest(RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG,
+            null, "GET", "GET_CONFIG", byteArrayOf(1, 0x33))
+        pending.finish(record)
+        pending.record(0, 3, byteArrayOf(0, 0), 200)
+        assertNull(pending.await(0))
+        assertNull(record.callbackElapsedNanos)
+        assertNull(LegacyNfcDiagnostics.PendingResponse(300).await(0))
+    }
+
+    @Test
+    fun callbackBeforeFrameworkReturnHasNegativeDelta() {
+        val state = State()
+        val record = state.report.addRequest(RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG,
+            null, "GET", "GET_CONFIG", byteArrayOf(1, 0x33))
+        record.frameworkStatus = 0
+        record.frameworkReturnElapsedNanos = 3_000_000
+        val pending = LegacyNfcDiagnostics.PendingResponse(10_000_000)
+        pending.record(0, 3, byteArrayOf(0, 0), 11_500_000)
+        pending.finish(record)
+        val formatted = LegacyNfcDiagnostics.formatProbe(state.report, state.values, state.missing, true)
+        assertTrue(formatted.contains("Callback minus framework return: -1.500 ms"))
     }
 
     @Test
@@ -64,7 +140,7 @@ class LegacyNfcDiagnosticsTest {
                 LegacyNfcDiagnostics.receiveGetConfig(state.report, record, { timeout ->
                     assertEquals(1000L, timeout)
                     if (arrived.await(timeout, TimeUnit.MILLISECONDS)) response else null
-                }, true)
+                })
             }
             assertEquals(1, state.report.requests.size)
             val record = state.report.requests.single()
@@ -93,7 +169,7 @@ class LegacyNfcDiagnosticsTest {
             LegacyNfcDiagnostics.receiveGetConfig(state.report, record, { timeout ->
                 assertEquals(1000L, timeout)
                 null
-            }, true)
+            })
         }
         assertEquals(1, state.report.requests.size)
         assertNull(state.report.requests.single().rx)
@@ -102,8 +178,8 @@ class LegacyNfcDiagnosticsTest {
     }
 
     @Test
-    fun otherFirmwareAndExplicitRejectionsDoNotWaitAfterFailure() {
-        for ((status, observe) in listOf(3 to false, 1 to true, 2 to true)) {
+    fun explicitRejectionsDoNotWaitAfterFailure() {
+        for (status in listOf(1, 2)) {
             val report = RawOperationReport(RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG)
             val record = report.addRequest(RawOperationReport.Operation.DIAGNOSTIC_GET_CONFIG,
                 null, "GET_ALL_PARAMETERS", "GET_CONFIG", byteArrayOf(1, 0x33))
@@ -111,7 +187,7 @@ class LegacyNfcDiagnosticsTest {
             assertThrows(IllegalStateException::class.java) {
                 LegacyNfcDiagnostics.receiveGetConfig(report, record, {
                     throw AssertionError("Rejected request must not wait")
-                }, observe)
+                })
             }
             assertNull(record.rx)
         }
@@ -126,7 +202,7 @@ class LegacyNfcDiagnosticsTest {
         val values = LegacyNfcDiagnostics.receiveGetConfig(report, record, { timeout ->
             assertEquals(4000L, timeout)
             byteArrayOf(0, 1, 0x33, 0)
-        }, true)
+        })
         assertArrayEquals(byteArrayOf(), values[0x33])
         assertEquals(0, record.controllerStatus)
         assertNull(record.failure)
@@ -142,7 +218,7 @@ class LegacyNfcDiagnosticsTest {
                     record.frameworkStatus = 3
                     LegacyNfcDiagnostics.receiveGetConfig(state.report, record, {
                         throw InterruptedException("cancelled observation")
-                    }, true)
+                    })
                 }
             }
             assertEquals(1, state.report.requests.size)

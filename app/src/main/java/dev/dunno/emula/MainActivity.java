@@ -1171,24 +1171,17 @@ public final class MainActivity extends Activity {
         panel.addView(reportScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
-        boolean canProbe = (rawApi || XiaomiNfcController.isTargetDevice()
-                || XiaomiNfcController.hasPendingRestore(this)
-                || "HONOR".equalsIgnoreCase(Build.MANUFACTURER))
-                && permission && adapter != null && adapter.isEnabled();
-        Button probeButton = null;
-        if (canProbe) {
-            diagnosticsText.append("\n\n" + getString(R.string.diagnostics_prepare_report_hint));
-            probeButton = new Button(this);
-            probeButton.setAllCaps(false);
-            probeButton.setText(R.string.diagnostics_prepare_report);
-            probeButton.setTextColor(Color.WHITE);
-            probeButton.setTextSize(15);
-            probeButton.setBackground(rounded(Color.rgb(59, 112, 211), 14));
-            LinearLayout.LayoutParams probeParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
-            probeParams.topMargin = dp(8);
-            panel.addView(probeButton, probeParams);
-        }
+        diagnosticsText.append("\n\n" + getString(R.string.diagnostics_prepare_report_hint));
+        Button probeButton = new Button(this);
+        probeButton.setAllCaps(false);
+        probeButton.setText(R.string.diagnostics_prepare_report);
+        probeButton.setTextColor(Color.WHITE);
+        probeButton.setTextSize(15);
+        probeButton.setBackground(rounded(Color.rgb(59, 112, 211), 14));
+        LinearLayout.LayoutParams probeParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
+        probeParams.topMargin = dp(8);
+        panel.addView(probeButton, probeParams);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -1218,46 +1211,47 @@ public final class MainActivity extends Activity {
         closeButton.setOnClickListener(v -> dialog.dismiss());
         actions.addView(closeButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        setDiagnosticsExportEnabled(copyButton, emailButton, !canProbe);
+        setDiagnosticsExportEnabled(copyButton, emailButton, false);
 
-        if (probeButton != null) {
-            Button activeProbeButton = probeButton;
-            activeProbeButton.setOnClickListener(v -> {
-                activeProbeButton.setEnabled(false);
-                setDiagnosticsExportEnabled(copyButton, emailButton, false);
-                diagnosticsText.setText(initialSummary + "\n\n"
-                        + getString(R.string.diagnostics_reading));
+        Button activeProbeButton = probeButton;
+        activeProbeButton.setOnClickListener(v -> {
+            activeProbeButton.setEnabled(false);
+            setDiagnosticsExportEnabled(copyButton, emailButton, false);
+            diagnosticsText.setText(initialSummary + "\n\n"
+                    + getString(R.string.diagnostics_reading));
+            reportScroll.scrollTo(0, 0);
+            Context app = getApplicationContext();
+            nfc.submit(false, state -> {
+                boolean enabled = adapter != null && adapter.isEnabled();
+                String vendorDetails = NfcStackDiagnostics.collect(app);
+                if (!enabled || !permission) return new String[] {vendorDetails, vendorDetails};
+                vendorDetails += "\n\n" + XiaomiNfcController.capabilities(app, true);
+                String honor = HonorStNfcController.diagnostics(app);
+                if (!honor.isEmpty()) vendorDetails += "\n\n" + honor;
+                try {
+                    if (!rawApi) return new String[] {vendorDetails, vendorDetails};
+                    LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(app);
+                    return new String[] {probe.userSummary + "\n\n" + vendorDetails,
+                            probe.detailedSummary + "\n\n" + vendorDetails};
+                } catch (Throwable error) {
+                    String message = getString(R.string.diagnostics_failed, safeMessage(error));
+                    return new String[] {message + "\n\n" + vendorDetails, message + "\n\n" + vendorDetails};
+                }
+            }, (result, failure) -> {
+                if (isDestroyed() || !dialog.isShowing()) return;
+                if (failure == null) {
+                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result[0]));
+                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result[1]);
+                } else {
+                    String message = getString(R.string.diagnostics_failed, safeMessage(failure));
+                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, message));
+                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, message);
+                }
                 reportScroll.scrollTo(0, 0);
-                Context app = getApplicationContext();
-                nfc.submit(false, state -> {
-                    String vendorDetails = XiaomiNfcController.capabilities(app, true);
-                    String honor = HonorStNfcController.diagnostics(app);
-                    if (!honor.isEmpty()) vendorDetails += "\n\n" + honor;
-                    try {
-                        if (!rawApi) return new String[] {vendorDetails, vendorDetails};
-                        LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(app);
-                        return new String[] {probe.userSummary + "\n\n" + vendorDetails,
-                                probe.detailedSummary + "\n\n" + vendorDetails};
-                    } catch (Throwable error) {
-                        String message = getString(R.string.diagnostics_failed, safeMessage(error));
-                        return new String[] {message + "\n\n" + vendorDetails, message + "\n\n" + vendorDetails};
-                    }
-                }, (result, failure) -> {
-                    if (isDestroyed() || !dialog.isShowing()) return;
-                    if (failure == null) {
-                        diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result[0]));
-                        detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result[1]);
-                    } else {
-                        String message = getString(R.string.diagnostics_failed, safeMessage(failure));
-                        diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, message));
-                        detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, message);
-                    }
-                    reportScroll.scrollTo(0, 0);
-                    activeProbeButton.setEnabled(true);
-                    setDiagnosticsExportEnabled(copyButton, emailButton, true);
-                });
+                activeProbeButton.setEnabled(true);
+                setDiagnosticsExportEnabled(copyButton, emailButton, true);
             });
-        }
+        });
 
         dialog.setContentView(panel);
         dialog.show();
