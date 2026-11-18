@@ -40,6 +40,9 @@ and internal release evidence are excluded from public source. See
 - `OemNfcController`: preferred Android OEM UID API and polling/discovery controls.
   Capability checks inspect actual firmware methods. vivo V2536A raw operations
   use foreground discovery; background actions require opening the app.
+- `OnePlus11Recovery` validates the pre-activation snapshot on the CPH2447 firmware
+  from issue #6. Flag-only records use a boot checkpoint and a seven-parameter
+  read before the app can archive them without writing to the controller. `OnePlus11RecoveryTest` covers both record formats and firmware changes.
 - `OnePlusVendorNfcController`: scoped vendor HCE path with saved-state recovery.
 - `MotorolaStNfcController`: separate opt-in experiment and Boston raw compatibility
   candidate. Preserve their distinct build flags and restoration behavior.
