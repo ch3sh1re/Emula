@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -55,8 +56,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Manual cards: tap to toggle emulation, hold to edit, swipe left to delete. */
@@ -72,7 +71,6 @@ public final class WatchActivity extends Activity {
     private String receiveMessage = "";
     private WatchReportLink reportLink;
     private String transferMessage = "";
-    private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final int ACCENT = Color.rgb(141, 185, 255);
     private static final int ERROR = Color.rgb(255, 180, 171);
@@ -97,6 +95,9 @@ public final class WatchActivity extends Activity {
     private boolean busy;
     private boolean resumed;
     private boolean coldStart;
+    private final SharedPreferences.OnSharedPreferenceChangeListener sessionChanged = (prefs, key) -> {
+        if (WatchSessionStore.REVISION.equals(key) && resumed && !busy && screen == Screen.CARDS) render();
+    };
     private LinearLayout content;
     private ScrollView scroll;
     private EditText nameInput;
@@ -135,7 +136,7 @@ public final class WatchActivity extends Activity {
         SplashScreen.installSplashScreen(this);
         super.onCreate(state);
         coldStart = !STARTED.getAndSet(true);
-        store = new WatchSessionStore(getSharedPreferences("watch_restore", MODE_PRIVATE));
+        store = new WatchSessionStore(this);
         session = new WatchNfcSession(store, new WatchHardwareBackend(this, evidence), Build.FINGERPRINT);
         try { adapter = NfcAdapter.getDefaultAdapter(this); }
         catch (Throwable failure) { adapterEvidence = android.util.Log.getStackTraceString(failure); }
@@ -176,11 +177,13 @@ public final class WatchActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        store.preferences.registerOnSharedPreferenceChangeListener(sessionChanged);
         clearResolvedPrerequisite();
         if (coldStart) {
             coldStart = false;
             try {
-                if (store.load() != null) runTask(() -> {
+                if (store.needsStartupRestore()) runTask(() -> {
+                    if (!store.needsStartupRestore()) return null;
                     requireNfc();
                     session.restore();
                     return getString(R.string.restored);
@@ -203,6 +206,7 @@ public final class WatchActivity extends Activity {
 
     @Override protected void onPause() {
         resumed = false;
+        store.preferences.unregisterOnSharedPreferenceChangeListener(sessionChanged);
         cancelReceive();
         cancelReport();
         handler.removeCallbacks(permissionRefresh);
@@ -506,6 +510,7 @@ public final class WatchActivity extends Activity {
             SavedCard existing = id == null ? null : requireCard(id);
             stopIfActive(id);
             CardStore.save(this, existing, name, uid);
+            WatchCardTileService.refresh(this);
             return getString(R.string.saved);
         }, () -> { editingId = null; screen = Screen.CARDS; });
     }
@@ -525,6 +530,7 @@ public final class WatchActivity extends Activity {
             runTask(() -> {
                 stopIfActive(id);
                 CardStore.delete(this, id);
+                WatchCardTileService.refresh(this);
                 return getString(R.string.deleted);
             }, () -> { deletingId = null; editingId = null; screen = Screen.CARDS; });
         });
@@ -540,11 +546,13 @@ public final class WatchActivity extends Activity {
                 ? Operation.STOP : Operation.START;
         runTask(() -> {
             WatchNfcSession.Pending current = store.load();
-            if (current != null && current.cardId.equals(card.id)) {
+            if (requested == Operation.STOP) {
+                if (current == null || !current.cardId.equals(card.id)) return null;
                 requireNfc();
                 session.restore();
                 return getString(R.string.restored);
             }
+            if (current != null && current.active && current.cardId.equals(card.id)) return null;
             if (!UidCodec.isSupportedLength(card.uid.length)) throw new IllegalArgumentException(getString(R.string.uid_error));
             requireNfc();
             WatchNfcSession.Path path = activationPath();
@@ -564,16 +572,11 @@ public final class WatchActivity extends Activity {
     }
 
     private WatchNfcSession.Path activationPath() {
-        return WatchActivationPolicy.select(Build.VERSION.SDK_INT,
-                getPackageManager().hasSystemFeature("android.hardware.type.watch"),
-                OemNfcController.inspectCapabilities(this).androidOemExtension,
-                LegacyNfcDiagnostics.isRawNciApiAvailable(this),
-                !"UNAVAILABLE".equals(LegacyNfcController.pollingMethod(this)));
+        return WatchNfcRuntime.path(this);
     }
 
     private boolean hasRawConsent() {
-        return WatchActivationPolicy.hasConsent(Build.FINGERPRINT,
-                getSharedPreferences("watch_experiments", MODE_PRIVATE).getString("rawFirmware", ""));
+        return WatchNfcRuntime.hasRawConsent(this);
     }
 
     private void confirmExperimentalRaw(SavedCard card) {
@@ -730,12 +733,7 @@ public final class WatchActivity extends Activity {
     }
 
     private void requireNfc() {
-        if (adapter == null) throw new WatchUiError.Condition(WatchUiError.NFC_UNAVAILABLE,
-                getString(R.string.no_adapter));
-        if (!adapter.isEnabled()) throw new WatchUiError.Condition(WatchUiError.NFC_OFF,
-                getString(R.string.nfc_off));
-        if (!hasPermission()) throw new WatchUiError.Condition(WatchUiError.PERMISSION,
-                getString(R.string.grant_required));
+        WatchNfcRuntime.requireNfc(this, adapter);
     }
 
     private void openDiagnostics() {
@@ -915,6 +913,7 @@ public final class WatchActivity extends Activity {
             receiveMessage = getString(R.string.receive_wait);
             receiveLink = LocalWatchLink.receive(bluetooth, getApplicationContext(), new LocalWatchLink.Callback() {
                 @Override public void complete(WatchCardPacket.Result result) {
+                    WatchCardTileService.refresh(WatchActivity.this);
                     cancelReceive();
                     if (isDestroyed() || isFinishing()) return;
                     screen = Screen.CARDS;
@@ -1066,7 +1065,8 @@ public final class WatchActivity extends Activity {
             setCardActionsEnabled(false);
             handler.postDelayed(showProgress, CARD_PROGRESS_DELAY_MS);
         }
-        WORK.execute(() -> {
+        WatchNfcRuntime.WORK.execute(() -> {
+            long previousRevision = store.revision();
             String result = null;
             boolean completed = false;
             Throwable operationFailure = null;
@@ -1076,6 +1076,10 @@ public final class WatchActivity extends Activity {
                 evidence.append("\nOPERATION FAILURE\n").append(android.util.Log.getStackTraceString(failure));
                 result = getString(R.string.error, describe(failure));
                 if (failure.getSuppressed().length > 0) result += "\n" + getString(R.string.recovery);
+            }
+            if (store.revision() != previousRevision) {
+                if (completed) WatchNfcRuntime.tilePreferences(this).edit().remove("error").apply();
+                WatchCardTileService.refresh(this);
             }
             String report;
             try {
@@ -1169,6 +1173,8 @@ public final class WatchActivity extends Activity {
                     .append("\nOriginal snapshot: ").append(current.snapshot);
             if (current != null && current.active) output.append("\nExternal reader observation: not recorded");
         } catch (Exception failure) { output.append("\nPending state failure: ").append(failure); }
+        String tileOperation = WatchNfcRuntime.tilePreferences(this).getString("lastOperation", "");
+        if (!tileOperation.isEmpty()) output.append("\n\nLAST TILE OPERATION\n").append(tileOperation);
         return output.append("\n\nRESULT\n").append(result)
                 .append("\n\nOPERATIONS\n").append(evidence)
                 .append("\n\nREPORT DIAGNOSTIC\n").append(diagnosticEvidence.isEmpty()

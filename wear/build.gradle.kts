@@ -35,6 +35,7 @@ val syncWatchSources by tasks.registering(Sync::class) {
             "dev/dunno/emula/SavedCard.kt",
             "dev/dunno/emula/CardCatalog.kt",
             "dev/dunno/emula/CardPalette.java",
+            "dev/dunno/emula/TouchFeedback.java",
             "dev/dunno/emula/CardStore.kt",
             "dev/dunno/emula/WatchCardPacket.java",
             "dev/dunno/emula/LocalWatchLink.java",
@@ -70,8 +71,8 @@ android {
         applicationId = "dev.dunno.emula"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10007
-        versionName = "1.0.6-wear"
+        versionCode = 10008
+        versionName = "1.0.7-wear"
         testInstrumentationRunner = "dev.dunno.emula.WatchFlowInstrumentation"
         buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "false")
         buildConfigField("boolean", "MOTOROLA_ST_RAW_COMPATIBILITY", "false")
@@ -115,5 +116,9 @@ kotlin {
 tasks.named("preBuild") { dependsOn(syncWatchSources, syncWatchLauncherResources) }
 dependencies {
     implementation("androidx.core:core-splashscreen:1.2.0")
+    implementation("androidx.wear.tiles:tiles:1.6.2")
+    implementation("androidx.concurrent:concurrent-futures:1.3.0")
+    // Use the opt-in annotation version provided by the Tiles runtime.
+    compileOnly("androidx.annotation:annotation-experimental")
     testImplementation("junit:junit:4.13.2")
 }

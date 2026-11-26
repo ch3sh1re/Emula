@@ -10,7 +10,7 @@ keys, authentication, and protected application data are not copied.
 [Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
 [Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
-**Current sources** — Android phones 1.0.40 (60) and Wear OS 1.0.6 (10007). Download the APK for your device from [GitHub Releases](https://github.com/ch3sh1re/Emula/releases).
+**Current sources** — Android phones 1.0.40 (60) and Wear OS 1.0.7 (10008). Find published APKs on [GitHub Releases](https://github.com/ch3sh1re/Emula/releases).
 
 ## Background
 
@@ -26,6 +26,7 @@ feedback.
 - Save, name, edit, and search multiple cards locally.
 - Tap a card to activate it; tap again to restore ordinary NFC operation.
 - Use launcher shortcuts, home screen widgets, and a Quick Settings tile on phones.
+- Start or stop a saved card from the Emula cards tile on Wear OS, with an optional auto-stop timer.
 - Import and export named UIDs as CSV through Android's file picker or sharing.
 - Send saved cards to a paired watch over direct encrypted Bluetooth. Tap
   the circular arrows on the watch, then choose Send all cards to watch on the phone.

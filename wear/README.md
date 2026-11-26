@@ -22,6 +22,14 @@ The debug build uses the separate package `dev.dunno.emula.watchtest`. Grant tha
 - Hold a card to edit it. To delete, swipe the card left until you feel a vibration, then release and confirm. A shorter swipe returns the card to its original position.
 - Open the **gear** for Setup and Diagnostics. If activation fails, prepare a report on the watch and send it to the paired phone for review. [Watch diagnostics](../docs/watch-diagnostics.md)
 
+## Wear OS tile
+
+Add **Emula → Emula cards** to the watch’s tile carousel. Tap **Next** to choose a saved card. Tap the colored card to start, then tap it again to stop. A light outline marks the active card. The tile and the watch app control the same active card. Watches that require foreground NFC control or first-time experimental consent will direct you to Emula.
+
+Successful taps give a short vibration when touch feedback is enabled on the watch. Once the timer stops an active card and restores NFC, the watch gives one light tick, even from the watch face. The tick uses the watch’s timer vibration settings and stays silent when touch feedback is off or Do Not Disturb is on.
+
+The timer is off by default. Tap the timer button to cycle through 3, 5, 10 and 30 seconds and back to off. This setting applies when you start a card from that tile. You can return to the watch face or stop early. Android schedules the stop independently of tile refreshes. If Wear OS suspends or kills Emula, it can delay the backup alarm. A failed restore can be retried from Emula.
+
 ## Build
 
 Use JDK 17 and Android SDK Platform 36.

@@ -16,17 +16,21 @@ final class CardPalette {
     }
 
     static GradientDrawable background(float hue, boolean active, int radius, int stroke) {
+        GradientDrawable shape = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, gradientColors(hue, active));
+        shape.setCornerRadius(radius);
+        if (active) shape.setStroke(stroke, ACTIVE_OUTLINE);
+        return shape;
+    }
+
+    static int[] gradientColors(float hue, boolean active) {
         int start = forWhiteText(hue, .72f, .76f);
         int end = forWhiteText((hue + 18f) % 360f, .82f, .54f);
         if (!active) {
             start = blendWithSurface(start, .24f);
             end = blendWithSurface(end, .28f);
         }
-        GradientDrawable shape = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, new int[]{start, end});
-        shape.setCornerRadius(radius);
-        if (active) shape.setStroke(stroke, ACTIVE_OUTLINE);
-        return shape;
+        return new int[]{start, end};
     }
 
     private static int forWhiteText(float hue, float saturation, float value) {

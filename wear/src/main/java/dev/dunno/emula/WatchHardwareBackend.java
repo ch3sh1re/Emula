@@ -1,6 +1,6 @@
 package dev.dunno.emula;
 
-import android.app.Activity;
+import android.content.Context;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -9,23 +9,23 @@ import java.util.Arrays;
 /** OEM first, with explicit experimental raw activation and exact snapshot restoration. */
 final class WatchHardwareBackend implements WatchNfcSession.Backend {
     private static final int[] MODIFIED_PARAMETERS = {0x85, 0x30, 0x31, 0x32, 0x33, 0x58};
-    private final Activity activity;
+    private final Context context;
     private final StringBuilder evidence;
 
-    WatchHardwareBackend(Activity activity, StringBuilder evidence) {
-        this.activity = activity;
+    WatchHardwareBackend(Context context, StringBuilder evidence) {
+        this.context = context;
         this.evidence = evidence;
     }
 
     @Override
     public String snapshot() throws Exception {
         if (WatchActivationPolicy.select(android.os.Build.VERSION.SDK_INT,
-                activity.getPackageManager().hasSystemFeature("android.hardware.type.watch"),
-                false, LegacyNfcDiagnostics.isRawNciApiAvailable(activity),
-                !"UNAVAILABLE".equals(LegacyNfcController.pollingMethod(activity))) == null) {
+                context.getPackageManager().hasSystemFeature("android.hardware.type.watch"),
+                false, LegacyNfcDiagnostics.isRawNciApiAvailable(context),
+                !"UNAVAILABLE".equals(LegacyNfcController.pollingMethod(context))) == null) {
             throw new IllegalStateException("Experimental NFC requires an Android 15+ watch with raw NFC and polling control");
         }
-        LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(activity);
+        LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
         evidence.append("\nBEFORE RAW WRITE\n").append(probe.detailedSummary).append('\n');
         if (!LegacyNfcController.isCompleteExperimentalSnapshot(probe.configuration)) {
             throw new IllegalStateException("Original NFC configuration is incomplete; raw write cancelled");
@@ -42,7 +42,7 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
         }
         if (path == WatchNfcSession.Path.RAW) {
             try {
-                LegacyNfcController.setCardEnabled(activity, uid, true,
+                LegacyNfcController.setCardEnabled(context, uid, true,
                         RawOperationReport.Operation.ACTIVATE, true,
                         RawNciCodec.decodeConfiguration(snapshot));
             } finally {
@@ -52,16 +52,16 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
             return;
         }
         try {
-            OemNfcController.setCardEnabled(activity, uid, true);
+            OemNfcController.setCardEnabled(context, uid, true);
             // The AOSP service can return OK without propagating individual SET statuses.
             // Read back when the firmware exposes raw GET; never infer reader activation.
             OemOperationReport report = OemNfcController.getLastOperationReport();
             boolean androidProfile = report != null && report.isCompletedAndroidCall();
             if (androidProfile) report.androidReadbackStatus = "UNAVAILABLE";
             LegacyNfcDiagnostics.ProbeResult readback = null;
-            if (LegacyNfcDiagnostics.isRawNciApiAvailable(activity)) {
+            if (LegacyNfcDiagnostics.isRawNciApiAvailable(context)) {
                 try {
-                    readback = LegacyNfcDiagnostics.runReadOnlyProbe(activity);
+                    readback = LegacyNfcDiagnostics.runReadOnlyProbe(context);
                     if (androidProfile) report.recordAndroidReadback(readback);
                     else evidence.append("\nOEM READBACK\n").append(readback.detailedSummary);
                 } catch (Exception readFailure) {
@@ -82,7 +82,7 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
     public void restore(WatchNfcSession.Pending pending) throws Exception {
         if (pending.path == WatchNfcSession.Path.OEM) {
             try {
-                OemNfcController.restoreDefaults(activity);
+                OemNfcController.restoreDefaults(context);
             } finally {
                 evidence.append("\nOEM RESTORE\n").append(OemNfcController.lastOperationDetailed());
             }
@@ -95,7 +95,7 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
             }
             boolean alreadyRestored = false;
             try {
-                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(activity);
+                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
                 evidence.append("\nBEFORE RESTORE\n").append(probe.detailedSummary);
                 alreadyRestored = LegacyNfcController.configurationEquals(original, probe.configuration);
                 if (alreadyRestored) LegacyNfcController.recordAlreadyRestored(
@@ -103,7 +103,7 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
             } catch (Exception readFailure) {
                 evidence.append("\nRestore pre-read failed: ").append(readFailure);
             }
-            if (!alreadyRestored) LegacyNfcController.setCardEnabled(activity, new byte[4], false,
+            if (!alreadyRestored) LegacyNfcController.setCardEnabled(context, new byte[4], false,
                     RawOperationReport.Operation.DEACTIVATE, true, original);
         } finally {
             evidence.append("\nRAW RESTORE\n").append(LegacyNfcController.lastOperationDetailed());
