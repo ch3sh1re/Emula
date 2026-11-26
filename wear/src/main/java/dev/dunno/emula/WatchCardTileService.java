@@ -22,7 +22,11 @@ import java.util.List;
 import java.util.UUID;
 
 public final class WatchCardTileService extends TileService {
+    // One confirmed Start can span two tile requests if the first returned the progress layout.
+    // Only the serial NFC worker accesses this token.
+    private static String startAwaitingLayout;
     private final Handler main = new Handler(Looper.getMainLooper());
+
     static void refresh(Context context) {
         TileService.getUpdater(context).requestUpdate(WatchCardTileService.class);
     }
@@ -111,7 +115,16 @@ public final class WatchCardTileService extends TileService {
         if (delivered && operated && pending != null && tap.kind == WatchTileAction.Kind.START) {
             WatchStopAlarm.activeTileDelivered(pending, seconds);
         }
-        if (delivered && pending == null) WatchStopAlarm.idleTileDelivered(tileId, revision);
+        if (pending == null) {
+            startAwaitingLayout = null;
+            if (delivered) WatchStopAlarm.idleTileDelivered(tileId, revision);
+        } else if (delivered && pending.active && pending.timerId.equals(startAwaitingLayout)
+                && tileId == prefs.getInt("lastStartTile", -1)) {
+            startAwaitingLayout = null;
+            if (SystemClock.elapsedRealtime() < pending.stopAtElapsed) {
+                TouchFeedback.play(this, VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
+            }
+        }
         if (operated) refresh(this, tileId);
     }
 
@@ -120,6 +133,7 @@ public final class WatchCardTileService extends TileService {
         Context context = getApplicationContext();
         StringBuilder evidence = new StringBuilder();
         Exception problem = null;
+        String timerId = "";
         WatchNfcSession session = new WatchNfcSession(store, new WatchHardwareBackend(context, evidence),
                 Build.FINGERPRINT);
         try {
@@ -140,7 +154,7 @@ public final class WatchCardTileService extends TileService {
                 if (path == null || (path == WatchNfcSession.Path.RAW && !consent)) {
                     throw new IllegalStateException(getString(R.string.tile_foreground));
                 }
-                String timerId = seconds == 0 ? "" : UUID.randomUUID().toString();
+                timerId = seconds == 0 ? "" : UUID.randomUUID().toString();
                 long deadline = seconds == 0 ? 0 : SystemClock.elapsedRealtime() + seconds * 1000L;
                 session.activate(card.id, card.uid, path, consent, timerId, deadline);
             }
@@ -148,7 +162,9 @@ public final class WatchCardTileService extends TileService {
             problem = failure;
         }
         WatchNfcRuntime.recordTileResult(this, "TILE " + tap.kind, evidence, problem);
-        if (problem == null) {
+        if (problem == null && !timerId.isEmpty()) {
+            startAwaitingLayout = timerId;
+        } else if (problem == null) {
             int effect = tap.kind == WatchTileAction.Kind.START ? VibrationEffect.EFFECT_CLICK : VibrationEffect.EFFECT_TICK;
             TouchFeedback.play(context, VibrationEffect.createPredefined(effect));
         }

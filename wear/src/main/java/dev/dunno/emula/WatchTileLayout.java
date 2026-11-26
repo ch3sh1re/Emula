@@ -70,8 +70,14 @@ final class WatchTileLayout {
             return tile(column().addContent(text(context.getString(R.string.tile_no_cards), 17, WHITE, 2))
                     .addContent(gap(6)).addContent(openApp()).build());
         }
-        if (pending == null) return tile(cardView(selected, next, null, revision, seconds, error));
-        LayoutElement active = cardView(activeCard, next, pending, revision, seconds, error);
+        if (pending == null) {
+            LayoutElement ready = cardView(selected, next, null, revision, seconds, error);
+            if (seconds == 0 || !supports(300) || !error.isEmpty()) return tile(ready);
+            // Keep both layers in place across Start so the renderer can reuse the outlined card.
+            LayoutElement preview = cardView(selected, next, selected.id, revision, seconds, "");
+            return cardLayers(preview, ready, new BoolProp.Builder(false).build(), new BoolProp.Builder(true).build());
+        }
+        LayoutElement active = cardView(activeCard, next, pending.cardId, revision, seconds, error);
         long remaining = pending.stopAtElapsed - SystemClock.elapsedRealtime();
         if (!pending.active || pending.timerId.isEmpty() || remaining <= 0
                 || selected == null || !error.isEmpty()) return tile(active);
@@ -112,10 +118,13 @@ final class WatchTileLayout {
                     .durationUntil(now).toIntSeconds().lt(0);
             running = running.and(beforeLastSecond.or(beforeStep));
         }
-        Box.Builder stack = new Box.Builder().setWidth(expand()).setHeight(expand());
-        stack.addContent(layer(active, new BoolProp.Builder(true).setDynamicValue(running).build()));
-        stack.addContent(layer(ready, new BoolProp.Builder(false).setDynamicValue(running.negate()).build()));
-        return tile(stack.build());
+        return cardLayers(active, ready, new BoolProp.Builder(true).setDynamicValue(running).build(),
+                new BoolProp.Builder(false).setDynamicValue(running.negate()).build());
+    }
+
+    private static Tile cardLayers(LayoutElement active, LayoutElement ready, BoolProp showActive, BoolProp showReady) {
+        return tile(new Box.Builder().setWidth(expand()).setHeight(expand())
+                .addContent(layer(active, showActive)).addContent(layer(ready, showReady)).build());
     }
 
     @androidx.annotation.OptIn(markerClass = ProtoLayoutExperimental.class)
@@ -123,11 +132,11 @@ final class WatchTileLayout {
         return centeredBox().setModifiers(new Modifiers.Builder().setVisible(visible).build()).addContent(body).build();
     }
 
-    private LayoutElement cardView(SavedCard card, String next, WatchNfcSession.Pending pending,
+    private LayoutElement cardView(SavedCard card, String next, String activeId,
             long revision, int seconds, String error) {
-        boolean active = pending != null;
+        boolean active = activeId != null;
         String name = card == null ? context.getString(R.string.recovery) : card.name;
-        String target = active ? pending.cardId : card.id;
+        String target = active ? activeId : card.id;
         String verb = context.getString(active ? R.string.tile_stop : R.string.tile_start);
         float hue = card == null ? CardPalette.defaultHue(0) : card.hueOrDefault(0);
         int[] colors = CardPalette.gradientColors(hue, false);
