@@ -91,7 +91,7 @@ final class WatchCardSender {
                 .setMessage(activity.getString(R.string.watch_send_wait, cards.size()))
                 .setNegativeButton(R.string.action_cancel, (d, w) -> cancel())
                 .setOnCancelListener(d -> cancel()).show();
-        link = LocalWatchLink.send(device, packet, cards.size(), new LocalWatchLink.Callback() {
+        link = LocalWatchLink.send(device, packet, cards, new LocalWatchLink.Callback() {
             @Override public void complete(WatchCardPacket.Result result) {
                 if (disposed) return;
                 cancel();

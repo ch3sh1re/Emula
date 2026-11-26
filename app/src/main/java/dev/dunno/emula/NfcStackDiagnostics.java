@@ -18,8 +18,7 @@ final class NfcStackDiagnostics {
 
     static String collect(Context context) {
         NfcFileEvidence files = new NfcFileEvidence();
-        StringBuilder text = new StringBuilder("NFC STACK DETAILS\n")
-                .append("Read-only metadata and method inspection; configuration methods are not invoked.\n");
+        StringBuilder text = new StringBuilder("NFC STACK DETAILS\n");
         try {
             PackageInfo info = context.getPackageManager().getPackageInfo("com.android.nfc", 0);
             text.append("NFC package: ").append(info.packageName).append(' ')
@@ -88,11 +87,9 @@ final class NfcStackDiagnostics {
         appendMethod(text, loader, "com.nxp.nfc.NxpNfcAdapter", "setConfig", String.class);
         appendMethod(text, loader, "com.st.android.nfc_extensions.NfcAdapterStExtensions", "programHceParameters",
                 boolean.class, byte.class, byte.class, byte.class, byte[].class, byte.class, byte[].class);
-        text.append("Class/method presence does not establish service permission or UID emulation support.");
-        text.append("\nFile hashes identify code for firmware comparison; listed libraries are not proof that they are loaded.");
         String oplus = OplusNfcDiagnostics.collect(context);
-        if (!oplus.isEmpty()) text.append("\n\n").append(oplus);
-        return text.toString();
+        if (!oplus.isEmpty()) text.append('\n').append(oplus);
+        return text.toString().trim();
     }
 
     private static void appendFile(StringBuilder text, NfcFileEvidence files, String label, String path) {

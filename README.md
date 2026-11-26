@@ -10,11 +10,7 @@ keys, authentication, and protected application data are not copied.
 [Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
 [Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
-Current source versions: **phone 1.0.21 (41)** and **Wear 1.0.4-wear (10005)**.
-The [changelog](CHANGELOG.md) covers the accumulated updates since 1.0.13,
-including local Bluetooth transfers, diagnostic improvements, Xiaomi fixes,
-HONOR/vivo compatibility trials and experimental watch NFC. Source availability
-does not imply a Play rollout or verified support on every listed device.
+**Current sources** — Android phones 1.0.40 (60) and Wear OS 1.0.6 (10007). Download the APK for your device from [GitHub Releases](https://github.com/ch3sh1re/Emula/releases).
 
 ## Background
 
@@ -31,9 +27,9 @@ feedback.
 - Tap a card to activate it; tap again to restore ordinary NFC operation.
 - Use launcher shortcuts, home screen widgets, and a Quick Settings tile on phones.
 - Import and export named UIDs as CSV through Android's file picker or sharing.
-- Send saved cards to a paired watch over direct encrypted Bluetooth. Open
-  Receive from phone on the watch, then Send all cards to watch on the phone.
-  Existing watch cards and names are kept; matching UIDs are skipped. Both apps
+- Send saved cards to a paired watch over direct encrypted Bluetooth. Tap
+  the circular arrows on the watch, then choose Send all cards to watch on the phone.
+  Cards keep their phone colors, and matching UIDs keep their watch names. Both apps
   need Nearby devices access. See [card transfer](docs/watch-transfer.md).
 - Prepare read-only NFC diagnostics and explicitly transfer watch reports to the
   paired phone for review, copying or sharing. See [diagnostics](docs/watch-diagnostics.md).

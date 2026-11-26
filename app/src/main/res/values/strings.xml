@@ -1,4 +1,6 @@
 <resources>
+    <string name="oneplus_raw_mode_required">This firmware blocks OnePlus recovery through its vendor API. To try the recovery path added in version 1.0.23, open the app menu (three dots) and enable Raw mode. Keep Emula open, then tap a card. The previous recovery record will be kept. If it still fails, prepare a new NFC diagnostic report.</string>
+    <string name="oneplus_raw_recovery_message">Raw mode can bypass the blocked OnePlus recovery on this firmware. Emula will keep a copy of the old recovery record and use the current NFC settings as a new baseline. Only the UID will be changed, then restored when the card is deactivated. Reader compatibility still needs testing.</string>
     <string name="watch_report_title">Get watch diagnostics</string>
     <string name="watch_report_receive">Receive report from watch</string>
     <string name="watch_report_receive_hint">On the watch, choose Send report to phone first.</string>
@@ -17,17 +19,17 @@
     <string name="watch_report_share_unavailable">No app is available to share the report. You can copy it instead.</string>
     <string name="watch_report_read_failed">The saved report could not be opened. Receive a new report from the watch.</string>
     <string name="watch_send_title">Send all cards to watch</string>
-    <string name="watch_send_choose">On your watch, open Emula → Receive from phone. Choose the paired watch below. Transfers use Bluetooth only.</string>
+    <string name="watch_send_choose">On your watch, tap the circular arrows in Emula, or Receive from phone on older versions. Choose your paired watch below.</string>
     <string name="watch_send_paired">Paired Bluetooth device</string>
     <string name="watch_send_device">Bluetooth device</string>
     <string name="watch_send_empty">Save a card before sending cards to a watch.</string>
     <string name="watch_send_permission">Allow Nearby devices access to send cards over Bluetooth.</string>
     <string name="watch_send_bluetooth">Turn on Bluetooth, then try again.</string>
     <string name="watch_send_pair">Pair your watch with this phone in system settings, then try again.</string>
-    <string name="watch_send_wait">Cards to send: %1$d\nKeep Emula open on both devices. On the watch, open Receive from phone. Existing cards are kept; matching UIDs are skipped.</string>
-    <string name="watch_send_done">Added on watch: %1$d\nSkipped matching UIDs: %2$d\n\nNo cards were deleted or activated.</string>
-    <string name="watch_send_failed">Could not confirm delivery. Keep Emula → Receive from phone open on the paired watch, check Bluetooth and try again. Repeating a transfer skips matching UIDs.</string>
-    <string name="watch_send_timeout">Transfer timed out. Keep Emula → Receive from phone open on the paired watch and try again. Repeating a transfer skips matching UIDs.</string>
+    <string name="watch_send_wait">Cards to send: %1$d\nKeep Emula open on both devices and the Receive screen open on the watch.</string>
+    <string name="watch_send_done">Added on watch: %1$d\nAlready on watch or repeated: %2$d</string>
+    <string name="watch_send_failed">Could not confirm delivery. Check Bluetooth, open Receive on the watch and try again. Matching cards are kept.</string>
+    <string name="watch_send_timeout">Transfer timed out. Open Receive on the watch and try again. Matching cards are kept.</string>
     <string name="watch_send_choose_action">Choose device</string>
     <string name="watch_send_limit">Transfer up to 2,000 cards at a time, with names up to 1,024 UTF-8 bytes and a total of 256 KiB. Shorten long names or reduce the list, then try again.</string>
     <!-- English is the default locale. Add translations in values-<language>/strings.xml. -->
@@ -102,11 +104,11 @@
     <string name="diagnostics_email_message">The report includes your device model, Android version, firmware and NFC operation details. It may contain card UIDs.\n\nYour email app will open a draft to %1$s. Review the report and remove any information you do not want to share before sending.</string>
     <string name="diagnostics_open_email">Open email</string>
     <string name="diagnostics_email_subject">Emula NFC diagnostics — %1$s %2$s</string>
-    <string name="diagnostics_email_body">What happened:\n[Describe the problem and what you expected.]\n\nReader used, if known:\n[Model and whether it detected the phone or read a UID.]\n\nDiagnostics (review before sending):\n%1$s</string>
+    <string name="diagnostics_email_body">What happened:\n\nReader model and result:\n\nDiagnostics:\n%1$s</string>
     <string name="diagnostics_email_unavailable_title">No email app available</string>
     <string name="diagnostics_email_unavailable_message">Copy the report, review it for card UIDs or other information you do not want to share, then send it to %1$s using your preferred email service.</string>
     <string name="diagnostics_copied">Diagnostics copied</string>
-    <string name="diagnostics_reading">Reading controller parameters…</string>
+    <string name="diagnostics_reading">Collecting NFC details…</string>
     <string name="diagnostics_failed">Check failed: %1$s</string>
     <string name="diagnostics_read_only_note">This check only reads the controller configuration and does not change the UID.</string>
 

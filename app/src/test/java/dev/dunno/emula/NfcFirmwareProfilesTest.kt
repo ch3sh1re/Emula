@@ -38,4 +38,10 @@ class NfcFirmwareProfilesTest {
             assertFalse(result.contains("ANDROID_OEM_NO_OP"))
         }
     }
+
+    @Test fun honorNlaMatchReportsTheReviewedCallbackBehavior() {
+        val hash = "2c2d091f1c1fe26f5a52764caf110f28990cafe72c02adf4bd5a547701562830"
+        assertTrue(NfcFirmwareProfiles.describe(hash).contains("3000 ms"))
+        assertFalse(NfcFirmwareProfiles.describe(hash.dropLast(1)).contains("NLA-L31"))
+    }
 }

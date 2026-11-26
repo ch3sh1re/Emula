@@ -1,16 +1,17 @@
 # Changelog
 
-## Unreleased
+## Phone 1.0.40 (60)
 
-- Retain existing OnePlus recovery records across permission failures and firmware
-  changes. A fresh denial before configuration changes can use the Android OEM API.
-  Recovery can finish without rewriting settings when both metadata and controller
-  readback match the saved state.
+- Saved cards keep their colors when other cards are removed. Sending cards to Wear 1.0.6 also updates their colors on the watch.
 
-- Include NFC package and library fingerprints in prepared phone reports, even
-  when NFC is unavailable. Identify reviewed Xiaomi and OPPO service builds.
-- Record framework and callback timing for read-only NFC requests. A late
-  controller reply after a framework failure remains available for diagnosis.
+## Wear OS 1.0.6 (10007)
+
+- Card colors and an outline identify cards and the active selection. Add, Receive and Settings share one row.
+- Swiping a card left gives haptic feedback at the delete threshold. Release to confirm, or release earlier to return the card to its place.
+
+## Earlier phone source updates
+
+- Improved recovery for saved NFC configurations and reporting of NFC service versions, readback and callback timing.
 
 ## Wear OS 1.0.4 (10005)
 

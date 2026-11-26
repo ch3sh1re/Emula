@@ -22,9 +22,7 @@ final class OplusNfcDiagnostics {
         if (!targets(Build.MANUFACTURER)) return "";
         Context app = context.getApplicationContext();
         return "OPLUS READ-ONLY SERVICE DETAILS\n"
-                + "Chip/firmware gates cached for this process; no NFC configuration methods are called.\n"
-                + probe.read(() -> inspect(app), 2000)
-                + "\nThese values identify a candidate implementation, not permission to activate or reader support.";
+                + probe.read(() -> inspect(app), 2000);
     }
 
     static boolean targets(String manufacturer) {

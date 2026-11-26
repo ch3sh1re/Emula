@@ -14,7 +14,6 @@ import java.util.Map;
 /** Existing phone OEM/raw transactions, independent of an Activity lifetime. */
 final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     private final Context context;
-    private final NfcAdapter adapter;
     private final SharedPreferences legacy;
     private final SharedPreferences settings;
     private final NfcUiContext<Activity> pollingUi;
@@ -22,7 +21,6 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     PhoneNfcBackend(Context context, NfcUiContext<Activity> pollingUi) {
         this.context = context.getApplicationContext();
         this.pollingUi = pollingUi;
-        adapter = NfcAdapter.getDefaultAdapter(context);
         legacy = context.getSharedPreferences("legacy_nfc", Context.MODE_PRIVATE);
         settings = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE);
     }
@@ -34,6 +32,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     @Override public void forgetActive() { CardSession.clearActiveCard(); }
     @Override public boolean recoveryPending() {
         return legacy.getBoolean("pending_restore", false) || MotorolaStNfcController.hasPendingRestore(context)
+                || OppoNxpRawController.hasPendingRestore(context)
+                || OnePlusRawRecovery.hasPendingRestore(context)
                 || OnePlusVendorNfcController.hasPendingRestore(context)
                 || XiaomiNfcController.hasPendingRestore(context)
                 || HonorStNfcController.hasPendingRestore(context);
@@ -53,11 +53,16 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             return NfcActivationPolicy.Path.OEM;
         }
         return NfcActivationPolicy.choose(activating,
-                OemNfcController.isUidEmulationSupported(context, !confirmedRawFallback),
+                !requiresRawTrial()
+                        && OemNfcController.isUidEmulationSupported(context, !confirmedRawFallback),
                 LegacyNfcDiagnostics.isRawNciApiAvailable(context),
                 LegacyNfcController.isExperimentalAvailable(context),
                 settings.getBoolean("force_raw_mode", false),
                 Build.FINGERPRINT.equals(settings.getString("experimental_raw_fingerprint", null)));
+    }
+
+    private boolean requiresRawTrial() {
+        return NfcActivationPolicy.requiresRawTrial(Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT);
     }
 
     private boolean useXiaomi() {
@@ -77,18 +82,32 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 !pending && !forced && OemNfcController.isUidEmulationSupported(context), pending);
     }
 
+    private boolean useOnePlusRawRecovery() {
+        if (!OnePlusRawRecovery.isTarget()) return false;
+        if (legacy.getBoolean("pending_restore", false) || XiaomiNfcController.hasPendingRestore(context)
+                || MotorolaStNfcController.hasPendingRestore(context)
+                || HonorStNfcController.hasPendingRestore(context)) return false;
+        return OnePlusRawRecovery.selected(context, settings.getBoolean("force_raw_mode", false));
+    }
+
     @Override public PhoneNfcSession.Reason preflight(SavedCard card) {
-        if (adapter == null) return PhoneNfcSession.Reason.NO_NFC;
-        if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
-        if (!permission()) return PhoneNfcSession.Reason.PERMISSION;
+        PhoneNfcSession.Reason unavailable = readiness();
+        if (unavailable != null) return unavailable;
+        if (useOnePlusRawRecovery() || OnePlusRawRecovery.hasPendingRestore(context)) {
+            return pollingUi.isResumed() ? null : PhoneNfcSession.Reason.FOREGROUND_REQUIRED;
+        }
         if (card == null && recoveryPending()) {
-            return legacy.getBoolean("pending_unverified", false) && needsForeground()
-                    ? PhoneNfcSession.Reason.FOREGROUND_REQUIRED : null;
+            boolean foregroundRequired = (legacy.getBoolean("uid_only_session", false) && !pollingUi.isResumed())
+                    || (legacy.getBoolean("pending_unverified", false) && needsForeground());
+            return foregroundRequired ? PhoneNfcSession.Reason.FOREGROUND_REQUIRED : null;
         }
         if (useXiaomi()) return null;
         if (useMotorolaRaw()) return null;
         NfcActivationPolicy.Path path = path(card != null);
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) return PhoneNfcSession.Reason.UNSUPPORTED;
+        if (path == NfcActivationPolicy.Path.CATALOG_RAW && useOnePlus12UidSnapshot(legacy) && !pollingUi.isResumed()) {
+            return PhoneNfcSession.Reason.FOREGROUND_REQUIRED;
+        }
         if ((path == NfcActivationPolicy.Path.EXPERIMENTAL_RAW
                 || path == NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW) && needsForeground()) {
             return PhoneNfcSession.Reason.FOREGROUND_REQUIRED;
@@ -97,13 +116,19 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         return null;
     }
 
+    static boolean useOnePlus12UidSnapshot(SharedPreferences legacy) {
+        return OnePlusLegacyRecovery.useUidSnapshot(Build.VERSION.SDK_INT, Build.FINGERPRINT,
+                legacy.getBoolean("pending_restore", false), legacy.getBoolean("uid_only_session", false));
+    }
+
     private boolean needsForeground() {
         return !pollingUi.isResumed()
                 && "UNAVAILABLE".equals(LegacyNfcController.pollingMethod(context));
     }
 
-    private Context pollingContext(boolean unverified) throws Exception {
+    private Context pollingContext(boolean unverified, boolean uidOnly) throws Exception {
         Activity activity = pollingUi.acquire(2_000);
+        if (uidOnly && activity == null) throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FOREGROUND_REQUIRED);
         Context selected = activity == null ? context : activity;
         if (unverified && "UNAVAILABLE".equals(LegacyNfcController.pollingMethod(selected))) {
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FOREGROUND_REQUIRED);
@@ -130,6 +155,21 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             rawChange(null, RawOperationReport.Operation.STARTUP_PENDING_RESTORE, unverified, false);
             return true;
         }
+        if (OppoNxpRawController.hasPendingRestore(context)) {
+            requireReady();
+            oppoRawChange(null, RawOperationReport.Operation.STARTUP_PENDING_RESTORE);
+            return true;
+        }
+        if (OnePlusRawRecovery.hasPendingRestore(context)) {
+            requireReady();
+            onePlusRawChange(null);
+            return true;
+        }
+        if (useOnePlusRawRecovery()) {
+            requireReady();
+            OnePlusRawRecovery.prepare(new OnePlusRawRecovery.AndroidPlatform(context, context));
+            return true;
+        }
         if (XiaomiNfcController.hasPendingRestore(context)) {
             requireReady();
             xiaomiChange(null, OemOperationReport.Operation.STARTUP_RESTORE);
@@ -137,27 +177,45 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
         if (useXiaomi()) {
             // No startup reset without our own marker; another app may own a transit override.
-            return adapter != null && adapter.isEnabled() && permission();
+            return readiness() == null;
+        }
+        if (OnePlusAndroidRecovery.selected(context)) {
+            requireReady();
+            OnePlusAndroidRecovery.prepare(context);
+            // No setter at migration. The next card action uses the existing Android API.
+            return true;
         }
         boolean vendorPending = OnePlusVendorNfcController.hasPendingRestore(context)
                 || MotorolaStNfcController.hasPendingRestore(context)
                 || HonorStNfcController.hasPendingRestore(context);
         if (vendorPending) requireReady();
-        if (adapter == null || !adapter.isEnabled() || !permission()
-                || (!vendorPending && !OemNfcController.isUidEmulationSupported(context))) return false;
+        if (readiness() != null) return false;
+        if (!NfcActivationPolicy.shouldRestoreOemAtStartup(vendorPending,
+                OemNfcController.isUidEmulationSupported(context), requiresRawTrial())) {
+            // A ready raw-only session needs no OEM reset. Completing initialization
+            // prevents the next toggle from clearing its live active-card state.
+            return true;
+        }
         try {
             OemNfcController.restoreDefaults(context, OemOperationReport.Operation.STARTUP_RESTORE);
-            saveLegacy(false, false, null);
+            saveLegacy(false, false, null, false);
             return true;
         } catch (Throwable error) {
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
         }
     }
 
+    private PhoneNfcSession.Reason readiness() {
+        // The process can start before the NFC service returns an adapter after boot.
+        NfcAdapter adapter = NfcAdapter.getDefaultAdapter(context);
+        if (adapter == null) return PhoneNfcSession.Reason.NO_NFC;
+        if (!adapter.isEnabled()) return PhoneNfcSession.Reason.DISABLED;
+        return permission() ? null : PhoneNfcSession.Reason.PERMISSION;
+    }
+
     private void requireReady() throws PhoneNfcSession.Failure {
-        if (adapter == null) throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.NO_NFC);
-        if (!adapter.isEnabled()) throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.DISABLED);
-        if (!permission()) throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.PERMISSION);
+        PhoneNfcSession.Reason unavailable = readiness();
+        if (unavailable != null) throw new PhoneNfcSession.Failure(unavailable);
     }
 
     @Override public void change(SavedCard card, boolean confirmed) throws Exception {
@@ -176,6 +234,19 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     legacy.getBoolean("pending_unverified", false), false);
             return;
         }
+        if (OppoNxpRawController.hasPendingRestore(context)
+                && (card == null || !OppoNxpRawController.targets())) {
+            oppoRawChange(null, RawOperationReport.Operation.DEACTIVATE);
+            if (card == null) return;
+        }
+        if (OnePlusRawRecovery.hasPendingRestore(context) && !useOnePlusRawRecovery()) {
+            onePlusRawChange(null);
+            if (card == null) return;
+        }
+        if (useOnePlusRawRecovery()) {
+            onePlusRawChange(card);
+            return;
+        }
         if (useXiaomi()) {
             if (xiaomiChange(card, card == null ? OemOperationReport.Operation.DEACTIVATE
                     : OemOperationReport.Operation.ACTIVATE)) return;
@@ -191,6 +262,9 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             if (motorolaRawChange(card)) return;
         }
         NfcActivationPolicy.Path path = path(card != null, confirmed);
+        if (path == NfcActivationPolicy.Path.OEM && OppoNxpRawController.hasPendingRestore(context)) {
+            oppoRawChange(null, RawOperationReport.Operation.DEACTIVATE);
+        }
         if (path == NfcActivationPolicy.Path.UNSUPPORTED) {
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.UNSUPPORTED);
         }
@@ -217,7 +291,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 OemNfcController.setCardEnabled(context, card.uid, true);
                 CardSession.setActiveCardId(card.id);
             }
-            saveLegacy(false, false, null);
+            OnePlusAndroidRecovery.observe(context, OemNfcController.getLastOperationReport());
+            saveLegacy(false, false, null, false);
         } catch (Throwable error) {
             OemOperationReport report = OemNfcController.getLastOperationReport();
             OemOperationReport st = report == null ? null : report.stAttempt == null ? report : report.stAttempt;
@@ -225,7 +300,8 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                     || st.path == OemOperationReport.Path.HONOR_ST_VENDOR_HCE)
                     && Boolean.TRUE.equals(st.rollbackAttempted)) CardSession.clearActiveCard();
             if (card != null && (error instanceof OemNfcController.MotorolaFallbackException
-                    || error instanceof OemNfcController.HonorFallbackException)) {
+                    || error instanceof OemNfcController.HonorFallbackException
+                    || error instanceof OemNfcController.OnePlusFallbackException)) {
                 NfcActivationPolicy.Path fallback = NfcActivationPolicy.choose(true, false,
                         LegacyNfcDiagnostics.isRawNciApiAvailable(context),
                         LegacyNfcController.isExperimentalAvailable(context), false,
@@ -242,6 +318,19 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 }
             }
             throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, false, error);
+        }
+    }
+
+    private void onePlusRawChange(SavedCard card) throws Exception {
+        Activity foreground = pollingUi.acquire(2_000);
+        if (foreground == null) throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FOREGROUND_REQUIRED);
+        OnePlusRawRecovery.AndroidPlatform platform = new OnePlusRawRecovery.AndroidPlatform(context, foreground);
+        try {
+            OnePlusRawRecovery.change(platform, card == null ? null : card.uid);
+            CardSession.setActiveCardId(card == null ? null : card.id);
+        } catch (Throwable error) {
+            if (platform.writeAttempted) CardSession.clearActiveCard();
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, true, error);
         }
     }
 
@@ -273,7 +362,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                             card != null, report),
                     () -> MotorolaStNfcController.hasPendingRestore(context), report);
             if (applied) {
-                saveLegacy(false, false, null);
+                saveLegacy(false, false, null, false);
                 CardSession.setActiveCardId(card == null ? null : card.id);
             } else if (Boolean.TRUE.equals(report.rollbackAttempted)) {
                 CardSession.clearActiveCard();
@@ -291,13 +380,54 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
 
     private void rawChange(SavedCard card, RawOperationReport.Operation operation,
             boolean unverified, boolean probeBeforeWrite) throws Exception {
+        if (card == null && OnePlusLegacyRecovery.oldRecord(Build.MODEL, Build.FINGERPRINT,
+                legacy.getBoolean("pending_restore", false), unverified,
+                legacy.contains("catalog_snapshot_firmware"))) {
+            recoverOnePlusLegacyRecord(operation);
+            return;
+        }
+        if (card != null && unverified && OppoNxpRawController.targets()
+                && (OppoNxpRawController.hasPendingRestore(context) || OppoNxpRawController.available(context))) {
+            // The existing per-firmware raw consent has already been checked by changeController.
+            // Finish any older generic transaction before creating a separate RF recovery record.
+            if (legacy.getBoolean("pending_restore", false)) {
+                rawChange(null, RawOperationReport.Operation.STARTUP_PENDING_RESTORE,
+                        legacy.getBoolean("pending_unverified", false), false);
+            }
+            oppoRawChange(card, operation);
+            return;
+        }
+        boolean uidOnly = !unverified && useOnePlus12UidSnapshot(legacy);
+        if (uidOnly && card == null && !legacy.getBoolean("pending_restore", false)) return;
         String previousId = activeId();
         SavedCard previous = QuickCardPolicy.find(cards(), previousId);
         Map<Integer, byte[]> original = null;
         Map<Integer, byte[]> sessionOriginal = null;
         boolean writeAttempted = false;
         try {
-            if (unverified) {
+            if (!unverified) {
+                try {
+                    original = OnePlusLegacyRecovery.baseline(Build.MODEL, Build.FINGERPRINT,
+                            legacy.getString("catalog_snapshot_firmware", null),
+                            legacy.getBoolean("pending_restore", false), card != null, uidOnly, this::loadOriginal,
+                            () -> LegacyNfcDiagnostics.runReadOnlyProbe(context).configuration);
+                    if (uidOnly) {
+                        if (original == null || original.get(0x59) == null) {
+                            throw new IllegalStateException("The complete seven-field NFC snapshot is required");
+                        }
+                        if (card != null) OnePlusVendorNfcController.requireIdleAccessCard(context);
+                    } else if (card != null && OnePlusLegacyRecovery.isOnePlus12Android16(Build.FINGERPRINT)) {
+                        OnePlusLegacyRecovery.snapshotBitFrameSdd(original);
+                    }
+                } catch (Exception failure) {
+                    RawOperationReport report = new RawOperationReport(operation);
+                    if (uidOnly) report.candidate = RawOperationReport.Candidate.UID_ONLY;
+                    report.stage = "CHECK_RECOVERY_SNAPSHOT";
+                    LegacyNfcController.recordPreparationFailure(report, failure);
+                    throw failure;
+                }
+                sessionOriginal = original;
+            } else {
                 if (card != null && probeBeforeWrite) {
                     original = LegacyNfcDiagnostics.runReadOnlyProbe(context).configuration;
                     if (!LegacyNfcController.isCompleteExperimentalSnapshot(original)) {
@@ -317,14 +447,14 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 if (alreadyRestored) LegacyNfcController.recordAlreadyRestored(operation, probe);
             }
             if (!alreadyRestored) {
-                Context pollingContext = pollingContext(unverified);
-                if (card != null) saveLegacy(true, unverified, sessionOriginal);
+                Context pollingContext = pollingContext(unverified, uidOnly);
+                if (card != null) saveLegacy(true, unverified, sessionOriginal, uidOnly);
                 writeAttempted = true;
                 LegacyNfcController.setCardEnabled(pollingContext,
                         card == null ? new byte[UidCodec.DEFAULT_UID_LENGTH] : card.uid,
-                        card != null, operation, unverified, original);
+                        card != null, operation, unverified, original, uidOnly);
             }
-            saveLegacy(card != null, unverified, card != null ? sessionOriginal : null);
+            if (card == null || !uidOnly) saveLegacy(card != null, unverified, sessionOriginal, uidOnly);
             CardSession.setActiveCardId(card == null ? null : card.id);
             if (card != null && unverified) settings.edit()
                     .putString("experimental_raw_fingerprint", Build.FINGERPRINT).apply();
@@ -339,19 +469,20 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
             Throwable rollbackFailure = null;
             if (card != null && writeAttempted) {
                 try {
-                    boolean restorePrevious = !unverified && previous != null;
-                    LegacyNfcController.setCardEnabled(pollingContext(unverified),
+                    boolean restorePrevious = !uidOnly && !unverified && previous != null;
+                    LegacyNfcController.setCardEnabled(pollingContext(unverified, uidOnly),
                             restorePrevious ? previous.uid : new byte[UidCodec.DEFAULT_UID_LENGTH],
                             restorePrevious, RawOperationReport.Operation.ROLLBACK_AFTER_ACTIVATION_FAILURE,
-                            unverified, original);
+                            unverified, original, uidOnly);
                     rollbackReport = LegacyNfcController.getLastOperationReport();
-                    saveLegacy(previousId != null, unverified, previousId != null ? sessionOriginal : null);
-                    CardSession.setActiveCardId(previousId);
+                    String restoredId = uidOnly ? null : previousId;
+                    saveLegacy(restoredId != null, unverified, sessionOriginal, uidOnly);
+                    CardSession.setActiveCardId(restoredId);
                 } catch (Throwable rollback) {
                     rollbackFailure = rollback;
                     rollbackReport = LegacyNfcController.getLastOperationReport();
                     AppLog.error("Raw NFC activation rollback failed", rollback);
-                    try { saveLegacy(true, unverified, sessionOriginal); }
+                    try { saveLegacy(true, unverified, sessionOriginal, uidOnly); }
                     catch (Throwable persistence) { rollback.addSuppressed(persistence); }
                 }
             }
@@ -364,13 +495,106 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         }
     }
 
-    private void saveLegacy(boolean pending, boolean unverified, Map<Integer, byte[]> original) {
-        SharedPreferences.Editor edit = legacy.edit().putBoolean("pending_restore", pending)
+    @Override public boolean flagOnlyBootCheckPending() {
+        return OnePlusLegacyRecovery.oldRecord(Build.MODEL, Build.FINGERPRINT,
+                legacy.getBoolean("pending_restore", false), legacy.getBoolean("pending_unverified", false),
+                legacy.contains("catalog_snapshot_firmware")) && !legacy.contains("original_configuration");
+    }
+
+    @Override public void checkFlagOnlyBootRecord() throws Exception {
+        try {
+            requireReady();
+        } catch (PhoneNfcSession.Failure failure) {
+            RawOperationReport report = new RawOperationReport(RawOperationReport.Operation.STARTUP_PENDING_RESTORE);
+            report.stage = "CHECK_FOREGROUND_PREREQUISITES";
+            LegacyNfcController.recordPreparationFailure(report, failure);
+            throw failure;
+        }
+        recoverOnePlusLegacyRecord(RawOperationReport.Operation.STARTUP_PENDING_RESTORE);
+    }
+
+    private void recoverOnePlusLegacyRecord(RawOperationReport.Operation operation) throws Exception {
+        RawOperationReport report = new RawOperationReport(operation);
+        report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
+        report.stage = "CHECK_LEGACY_RECORD";
+        try {
+            if (legacy.contains("original_configuration")) {
+                throw new IllegalStateException("Unidentified saved NFC configuration. Recovery was left pending.");
+            }
+            OnePlusLegacyRecovery profile = OnePlusLegacyRecovery.forDevice(Build.MODEL, Build.FINGERPRINT);
+            if (profile == null) throw new IllegalStateException("Unrecognized recovery firmware");
+            int boot = android.provider.Settings.Global.getInt(context.getContentResolver(),
+                    android.provider.Settings.Global.BOOT_COUNT, -1);
+            int firstBoot = legacy.getInt(profile.checkpointKey, -1);
+            if (firstBoot == -1 && boot >= 0) {
+                if (!legacy.edit().putInt(profile.checkpointKey, boot).commit()) {
+                    throw new IllegalStateException("Could not save the restart checkpoint.");
+                }
+                firstBoot = boot;
+            }
+            OnePlusLegacyRecovery.checkAfterRestart(firstBoot, boot, report, () -> {
+                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
+                if (probe.report != null) report.requests.addAll(probe.report.requests);
+                if (probe.report == null || !"OK".equals(probe.report.result)) {
+                    throw new IllegalStateException("Could not read every NFC setting. Recovery was left pending.");
+                }
+                return probe.configuration;
+            });
+            // The old format stored only the pending flag. Preserve it as an archive and
+            // retire it atomically. It cannot establish the user's pre-activation values.
+            if (!legacy.edit().putString(profile.archiveKey, Build.FINGERPRINT)
+                    .putBoolean("pending_restore", false).remove(profile.checkpointKey).commit()) {
+                legacy.edit().putBoolean("pending_restore", true)
+                        .putInt(profile.checkpointKey, firstBoot).apply();
+                throw new IllegalStateException("Could not archive the pending NFC record.");
+            }
+            report.result = "OLD_RECORD_ARCHIVED_AFTER_RESTART";
+            report.stage = "COMPLETE";
+            report.notes.add("The seven observed settings match the reviewed post-restart check. "
+                    + "Original pre-activation values were unavailable. No controller write was issued.");
+            CardSession.clearActiveCard();
+        } catch (Exception failure) {
+            report.primaryFailure = failure.getMessage();
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, true, failure);
+        } finally {
+            LegacyNfcController.recordOperation(report);
+        }
+    }
+
+    private void saveLegacy(boolean pending, boolean unverified, Map<Integer, byte[]> original, boolean uidOnly) {
+        SharedPreferences.Editor edit = legacy.edit()
+                .putBoolean("pending_restore", pending)
                 .putBoolean("pending_unverified", pending && unverified);
-        if (pending && unverified && original != null) {
+        if (pending && uidOnly) edit.putBoolean("uid_only_session", true);
+        else edit.remove("uid_only_session");
+        OnePlusLegacyRecovery profile = OnePlusLegacyRecovery.forDevice(Build.MODEL, Build.FINGERPRINT);
+        if (profile != null) edit.remove(profile.checkpointKey);
+        if (pending && original != null) {
             edit.putString("original_configuration", RawNciCodec.encodeConfiguration(original));
         } else edit.remove("original_configuration");
-        if (!edit.commit()) throw new IllegalStateException("Could not retain NFC recovery state");
+        if (pending && !unverified && original != null) {
+            edit.putString("catalog_snapshot_firmware", Build.FINGERPRINT);
+        } else edit.remove("catalog_snapshot_firmware");
+        if (!edit.commit()) {
+            // SharedPreferences can change its in-memory map even when a disk commit fails.
+            if (!pending && uidOnly && original != null) saveLegacy(true, false, original, true);
+            throw new IllegalStateException("Could not retain NFC recovery state");
+        }
+    }
+
+    private void oppoRawChange(SavedCard card, RawOperationReport.Operation operation) throws Exception {
+        try {
+            OppoNxpRawController.change(context, card == null ? null : card.uid, operation);
+            CardSession.setActiveCardId(card == null ? null : card.id);
+            if (card != null) settings.edit().putString("experimental_raw_fingerprint", Build.FINGERPRINT).apply();
+        } catch (Exception failure) {
+            RawOperationReport report = LegacyNfcController.getLastOperationReport();
+            if (report != null && report.requests.stream().anyMatch(r -> "SET_CONFIG".equals(r.command))) {
+                CardSession.clearActiveCard();
+            }
+            throw new PhoneNfcSession.Failure(PhoneNfcSession.Reason.FAILED, true, failure);
+        }
     }
 
     private Map<Integer, byte[]> loadOriginal() {

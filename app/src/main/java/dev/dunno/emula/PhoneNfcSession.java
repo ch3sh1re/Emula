@@ -27,6 +27,10 @@ final class PhoneNfcSession {
         void change(SavedCard card, boolean confirmed) throws Exception;
         Reason preflight(SavedCard card);
         boolean recoveryPending();
+        default boolean flagOnlyBootCheckPending() { return false; }
+        default void checkFlagOnlyBootRecord() throws Exception {
+            throw new UnsupportedOperationException("No foreground boot recovery on this backend");
+        }
     }
 
     final Backend backend;
@@ -42,6 +46,15 @@ final class PhoneNfcSession {
 
     private boolean needsInitialization() {
         return !initialized || (backend.activeId() == null && backend.recoveryPending());
+    }
+
+    boolean needsForegroundBootCheck() {
+        return backend.activeId() == null && backend.flagOnlyBootCheckPending();
+    }
+
+    void checkForegroundBootRecord() throws Exception {
+        // Recheck on the serialized worker: a card or a recovery may have run since enqueue.
+        if (needsForegroundBootCheck()) backend.checkFlagOnlyBootRecord();
     }
 
     void adapterOff() {

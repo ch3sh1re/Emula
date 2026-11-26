@@ -3,6 +3,7 @@ package dev.dunno.emula;
 import android.Manifest;
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -11,6 +12,7 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.nfc.NfcAdapter;
 import android.os.Build;
@@ -34,9 +36,14 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 
 import androidx.core.splashscreen.SplashScreen;
@@ -45,7 +52,9 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,6 +65,9 @@ public final class WatchActivity extends Activity {
     private enum Operation { START, STOP, RESTORE, PREPARE_REPORT, OTHER }
     private static final int RECEIVE_PERMISSION = 0x5744;
     private static final int REPORT_PERMISSION = 0x5745;
+    private static final long CARD_PROGRESS_DELAY_MS = 300;
+    private final Map<String, CardRow> cardRows = new LinkedHashMap<>();
+    private LinearLayout listActions;
     private LocalWatchLink receiveLink;
     private String receiveMessage = "";
     private WatchReportLink reportLink;
@@ -71,6 +83,7 @@ public final class WatchActivity extends Activity {
     private WatchSessionStore store;
     private WatchNfcSession session;
     private Screen screen = Screen.CARDS;
+    private Screen setupParent = Screen.CARDS;
     private String editingId;
     private String deletingId;
     private String nameDraft = "";
@@ -91,7 +104,6 @@ public final class WatchActivity extends Activity {
     private WatchNfcSession.Pending pending;
     private boolean recovery;
     private String busyCardId;
-    private Operation operation = Operation.OTHER;
     private Screen renderedScreen;
     private int cardsScrollY;
     private WatchUiError uiError;
@@ -104,6 +116,7 @@ public final class WatchActivity extends Activity {
     private WatchUiError inlineError;
     private String inlineCardId;
     private View inlineStatus;
+    private TextView resultStatus;
 
     private final Runnable permissionRefresh = new Runnable() {
         @Override public void run() {
@@ -129,6 +142,10 @@ public final class WatchActivity extends Activity {
         if (state != null) {
             try { screen = Screen.valueOf(state.getString("screen", Screen.CARDS.name())); }
             catch (IllegalArgumentException ignored) { screen = Screen.CARDS; }
+            if (screen == Screen.SETUP) {
+                try { setupParent = Screen.valueOf(state.getString("setupParent", Screen.CARDS.name())); }
+                catch (IllegalArgumentException ignored) { setupParent = Screen.CARDS; }
+            }
             editingId = state.getString("editingId");
             deletingId = state.getString("deletingId");
             nameDraft = state.getString("nameDraft", "");
@@ -203,6 +220,7 @@ public final class WatchActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("screen", screen.name());
+        state.putString("setupParent", setupParent.name());
         state.putString("editingId", editingId);
         state.putString("deletingId", deletingId);
         state.putString("nameDraft", nameDraft);
@@ -224,6 +242,10 @@ public final class WatchActivity extends Activity {
     }
 
     private void render() {
+        render(false);
+    }
+
+    private void render(boolean updateCardSelection) {
         if (renderedScreen == Screen.CARDS && scroll != null) cardsScrollY = scroll.getScrollY();
         int scrollY = scroll != null && renderedScreen == screen ? scroll.getScrollY()
                 : screen == Screen.CARDS ? cardsScrollY : 0;
@@ -240,12 +262,21 @@ public final class WatchActivity extends Activity {
                 errorOperation = Operation.RESTORE;
             }
         }
+        if (updateCardSelection && screen == Screen.CARDS && !recovery) {
+            for (CardRow row : cardRows.values()) row.updateSelection();
+            return;
+        }
+        cardRows.clear();
+        listActions = null;
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(true);
         boolean round = getResources().getConfiguration().isScreenRound();
-        scroll.setPadding(dp(round ? 24 : 16), dp(round ? 24 : 16),
-                dp(round ? 24 : 16), dp(round ? 32 : 24));
+        int side = round ? 24 : 16;
+        boolean cardList = screen == Screen.CARDS;
+        if (cardList) side = Math.max(0, Math.min(side,
+                (getResources().getConfiguration().screenWidthDp - 3 * 48) / 2));
+        scroll.setPadding(dp(side), dp(round ? 24 : 16), dp(side), dp(round ? (cardList ? 44 : 32) : 24));
         scroll.setClipToPadding(false);
         scroll.setFocusable(true);
         scroll.setOnGenericMotionListener((view, event) -> {
@@ -270,6 +301,7 @@ public final class WatchActivity extends Activity {
         nameInput = null;
         uidInput = null;
         inlineStatus = null;
+        resultStatus = null;
         switch (screen) {
             case EDITOR: renderEditor(); break;
             case DELETE: renderDelete(); break;
@@ -283,8 +315,8 @@ public final class WatchActivity extends Activity {
         if (!busy && screen != Screen.CARDS && inlineError != null) renderInlineStatus();
         if (busy && busyCardId == null) addText(getString(R.string.busy), 13, ACCENT);
         else if (!busy && uiError == null && inlineError == null && !message.isEmpty() && screen != Screen.DIAGNOSTICS) {
-            TextView status = addText(message, 13, ACCENT);
-            status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            resultStatus = addText(message, 13, ACCENT);
+            resultStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         }
         renderedScreen = screen;
         ScrollView renderedScroll = scroll;
@@ -308,22 +340,61 @@ public final class WatchActivity extends Activity {
             button(getString(R.string.restore), this::stopEmulation);
         }
         for (SavedCard card : cards) {
-            boolean active = pending != null && pending.active && pending.cardId.equals(card.id);
-            Button item = button(getString(active ? R.string.card_selected : R.string.card_label,
-                    card.name, Hex.bytes(card.uid)), () -> toggleCard(card));
+            CardRow row = new CardRow(card);
+            content.addView(row.face, buttonLayout());
+            cardRows.put(card.id, row);
+            if (inlineError != null && card.id.equals(inlineCardId)) renderInlineStatus();
+        }
+        if (!hasPermission()) button(getString(R.string.setup), () -> navigate(Screen.SETUP));
+        listActions = new LinearLayout(this);
+        listActions.setGravity(Gravity.CENTER);
+        content.addView(listActions, buttonLayout());
+        footerAction(R.drawable.ic_add_24, R.string.add_card, () -> openEditor(null));
+        footerAction(R.drawable.ic_sync_24, R.string.receive_cards, this::beginReceive);
+        footerAction(R.drawable.ic_settings_24, R.string.settings, () -> navigate(Screen.SETTINGS));
+    }
+
+    private void footerAction(int icon, int label, Runnable action) {
+        ImageButton button = iconButton(icon, getString(label), 0xFF1E2939, action);
+        listActions.addView(button, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    }
+
+    private ImageButton iconButton(int icon, String description, int background, Runnable action) {
+        ImageButton button = new ImageButton(this);
+        button.setContentDescription(description);
+        button.setImageResource(icon);
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setPadding(0, 0, 0, 0);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(background);
+        button.setBackground(new InsetDrawable(ripple(circle), dp(2)));
+        button.setEnabled(!busy);
+        button.setOnClickListener(v -> { if (!busy) action.run(); });
+        return button;
+    }
+
+    private final class CardRow {
+        final SavedCard card;
+        final Button item;
+        final WatchCardSwipe face;
+        ProgressBar progress;
+
+        CardRow(SavedCard card) {
+            this.card = card;
+            item = makeButton(getString(R.string.card_label, card.name, Hex.bytes(card.uid)), this::tapCard);
+            item.setBackground(ripple(CardPalette.background(card.colorHue, false, 0, 0)));
+            face = new WatchCardSwipe(item, () -> confirmDelete(card));
+            face.setAlpha(item.getAlpha());
+            item.setAlpha(1f);
             item.setMinHeight(dp(64));
             item.setMaxLines(3);
-            item.setTextSize(15);
-            if (active) item.setBackground(buttonBackground(true));
-            item.setContentDescription(getString(active ? R.string.card_active_accessibility
-                    : R.string.card_accessibility, card.name, Hex.bytes(card.uid)));
             item.setOnLongClickListener(view -> {
-                if (busy) return true;
+                if (busy || face.isSliding()) return true;
                 view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 openEditor(card);
                 return true;
             });
-            attachDeleteGesture(item, card);
             item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                     super.onInitializeAccessibilityNodeInfo(host, info);
@@ -338,16 +409,54 @@ public final class WatchActivity extends Activity {
                     return super.performAccessibilityAction(host, action, arguments);
                 }
             });
-            if (busy && card.id.equals(busyCardId)) {
-                TextView status = addText(getString(operation == Operation.STOP
-                        ? R.string.stopping : R.string.starting), 13, ACCENT);
-                status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-            } else if (inlineError != null && card.id.equals(inlineCardId)) renderInlineStatus();
+            updateSelection();
         }
-        button(getString(R.string.add_card), () -> openEditor(null));
-        button(getString(R.string.receive_cards), this::beginReceive);
-        if (!hasPermission()) button(getString(R.string.setup), () -> navigate(Screen.SETUP));
-        button(getString(R.string.settings), () -> navigate(Screen.SETTINGS));
+
+        private void tapCard() {
+            if (!face.isSliding()) toggleCard(card);
+        }
+
+        void updateSelection() {
+            boolean active = pending != null && pending.active && card.id.equals(pending.cardId);
+            if (active == item.isSelected() && item.getContentDescription() != null) return;
+            item.setSelected(active);
+            face.showSelection(active);
+            item.setContentDescription(getString(active ? R.string.card_active_accessibility
+                    : R.string.card_accessibility, card.name, Hex.bytes(card.uid)));
+        }
+
+        void showProgress(Operation requested) {
+            progress = new ProgressBar(WatchActivity.this, null, android.R.attr.progressBarStyleHorizontal);
+            progress.setIndeterminate(true);
+            progress.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+            progress.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            progress.setTranslationZ(item.getZ() + dp(1));
+            FrameLayout.LayoutParams bar = new FrameLayout.LayoutParams(dp(42), dp(3),
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            bar.bottomMargin = dp(5);
+            face.addView(progress, bar);
+            item.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            item.setStateDescription(getString(requested == Operation.STOP ? R.string.stopping : R.string.starting));
+        }
+
+        void hideProgress() {
+            if (progress == null) return;
+            face.removeView(progress);
+            progress = null;
+            item.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+            item.setStateDescription(null);
+        }
+    }
+
+    private void setCardActionsEnabled(boolean enabled) {
+        for (CardRow row : cardRows.values()) row.face.setCardEnabled(enabled);
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View child = content.getChildAt(i);
+            if (child instanceof Button) child.setEnabled(enabled);
+        }
+        if (listActions != null) {
+            for (int i = 0; i < listActions.getChildCount(); i++) listActions.getChildAt(i).setEnabled(enabled);
+        }
     }
 
     private void renderInlineStatus() {
@@ -367,47 +476,6 @@ public final class WatchActivity extends Activity {
         if (inlineError == WatchUiError.PERMISSION && hasPermission()) inlineError = null;
         if (inlineError == WatchUiError.NFC_OFF && adapter != null && adapter.isEnabled()) inlineError = null;
         if (hasPermission()) dismissSetupPrompt();
-    }
-
-    private void attachDeleteGesture(Button item, SavedCard card) {
-        item.setOnTouchListener(new View.OnTouchListener() {
-            float startX, startY;
-            boolean horizontal;
-            @Override public boolean onTouch(View view, MotionEvent event) {
-                switch (event.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        startX = event.getX();
-                        startY = event.getY();
-                        horizontal = false;
-                        return false;
-                    case MotionEvent.ACTION_MOVE:
-                        float dx = event.getX() - startX;
-                        float dy = event.getY() - startY;
-                        if (!horizontal && dx < -dp(24) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                            horizontal = true;
-                            view.getParent().requestDisallowInterceptTouchEvent(true);
-                            view.cancelLongPress();
-                            view.setPressed(false);
-                        }
-                        return horizontal;
-                    case MotionEvent.ACTION_UP:
-                        view.getParent().requestDisallowInterceptTouchEvent(false);
-                        if (!horizontal) return false;
-                        view.setPressed(false);
-                        if (!busy && event.getX() - startX < -dp(48)
-                                && Math.abs(event.getX() - startX) > Math.abs(event.getY() - startY) * 1.5f) {
-                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
-                            confirmDelete(card);
-                        }
-                        return true;
-                    case MotionEvent.ACTION_CANCEL:
-                        view.getParent().requestDisallowInterceptTouchEvent(false);
-                        view.setPressed(false);
-                        return horizontal;
-                    default: return false;
-                }
-            }
-        });
     }
 
     private void openEditor(SavedCard card) {
@@ -559,29 +627,29 @@ public final class WatchActivity extends Activity {
         addText(getString(R.string.controls), 13, Color.LTGRAY);
         addText(getString(R.string.support_scope), 12, Color.LTGRAY);
         addText(BuildConfig.VERSION_NAME, 11, Color.GRAY);
-        button(getString(R.string.back), () -> navigate(Screen.CARDS));
+        button(getString(R.string.back), this::navigateBack);
     }
 
     private void renderSetup() {
         addText(getString(R.string.setup), 18, Color.WHITE);
-        addText(getString(hasPermission() ? R.string.permission_ready : R.string.grant_required), 14,
-                hasPermission() ? ACCENT : Color.LTGRAY);
-        if (!hasPermission()) {
-            addText(getString(R.string.setup_note), 13, Color.LTGRAY);
+        if (hasPermission()) {
+            addText(getString(R.string.permission_ready), 14, ACCENT);
+        } else {
+            addText(getString(R.string.reveal_developer_options), 13, Color.LTGRAY);
+            button(getString(R.string.open_watch_settings),
+                    () -> openSetupSettings(Settings.ACTION_DEVICE_INFO_SETTINGS));
+            addText(getString(R.string.enable_debugging), 13, Color.LTGRAY);
             Intent debugging = new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
             if (debugging.resolveActivity(getPackageManager()) != null) {
-                button(getString(R.string.open_debugging), () -> {
-                    try { startActivity(debugging); }
-                    catch (android.content.ActivityNotFoundException | SecurityException ignored) {
-                        message = getString(R.string.debugging_unavailable); render();
-                    }
-                });
+                button(getString(R.string.open_debugging),
+                        () -> openSetupSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
             }
+            addText(getString(R.string.setup_note), 13, Color.LTGRAY);
             TextView command = addText(getString(R.string.grant_command, BuildConfig.APPLICATION_ID), 11, Color.WHITE);
             command.setTypeface(Typeface.MONOSPACE);
             command.setTextIsSelectable(true);
         }
-        button(getString(R.string.back), () -> navigate(Screen.CARDS));
+        button(getString(R.string.back), this::navigateBack);
     }
 
     private void showSetupPrompt() {
@@ -619,23 +687,41 @@ public final class WatchActivity extends Activity {
         addText(getString(R.string.diagnostics), 18, Color.WHITE);
         button(getString(R.string.prepare_report), () -> prepareReport(null));
         button(getString(R.string.send_report), this::beginReportTransfer);
-        button(getString(R.string.back), () -> navigate(Screen.SETTINGS));
+        button(getString(R.string.back), this::navigateBack);
         TextView report = addText(reportText, 11, Color.LTGRAY);
         report.setGravity(Gravity.START);
         report.setTypeface(Typeface.MONOSPACE);
         report.setTextIsSelectable(true);
     }
 
+    private static OemOperationReport activeAndroidReport(WatchNfcSession.Pending current, SavedCard card) {
+        OemOperationReport report = OemNfcController.getLastOperationReport();
+        if (current == null || !current.active || current.path != WatchNfcSession.Path.OEM
+                || !Build.FINGERPRINT.equals(current.firmware) || card == null || !card.id.equals(current.cardId)
+                || report == null || !report.isCompletedAndroidCall()
+                || report.operation != OemOperationReport.Operation.ACTIVATE || !card.hasSameUid(report.uid)) {
+            return null;
+        }
+        return report;
+    }
+
     private void prepareReport(Runnable success) {
+        WatchNfcSession.Pending current = pending;
         runTask(() -> {
             // A report must remain shareable when NFC/permission is missing or the GET fails.
             // Keep this read-only result separate from the last activation/restoration outcome.
             diagnosticEvidence = "Prepared: " + Instant.now() + "\n";
+            OemOperationReport active = current == null ? null : activeAndroidReport(current, findCard(current.cardId));
             try {
                 requireNfc();
                 LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(this);
+                if (active != null) {
+                    diagnosticEvidence += "Current Android profile readback: "
+                            + active.classifyAndroidReadback(probe.configuration) + "\n";
+                }
                 diagnosticEvidence += probe.detailedSummary;
             } catch (Exception failure) {
+                if (active != null) diagnosticEvidence += "Current Android profile readback: UNAVAILABLE\n";
                 diagnosticEvidence += "READ-ONLY PROBE UNAVAILABLE\n"
                         + android.util.Log.getStackTraceString(failure);
             }
@@ -735,16 +821,29 @@ public final class WatchActivity extends Activity {
         if (errorDialog != null) errorDialog.dismiss();
     }
 
-    private void openNfcSettings() {
-        for (String action : new String[] {Settings.ACTION_NFC_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS,
-                Settings.ACTION_SETTINGS}) {
-            Intent intent = new Intent(action);
-            if (intent.resolveActivity(getPackageManager()) == null) continue;
-            try { startActivity(intent); dismissError(); return; }
-            catch (android.content.ActivityNotFoundException | SecurityException ignored) { /* Try fallback. */ }
+    private boolean openSettings(String... actions) {
+        for (String action : actions) {
+            try {
+                startActivity(new Intent(action));
+                return true;
+            } catch (ActivityNotFoundException | SecurityException ignored) {
+                // Wear builds may expose only the main Settings screen.
+            }
         }
+        return false;
+    }
+
+    private void openSetupSettings(String section) {
+        if (!openSettings(section, Settings.ACTION_SETTINGS)) {
+            Toast.makeText(this, R.string.open_settings_manually, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void openNfcSettings() {
+        boolean opened = openSettings(Settings.ACTION_NFC_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS,
+                Settings.ACTION_SETTINGS);
         dismissError();
-        navigate(Screen.SETUP);
+        if (!opened) navigate(Screen.SETUP);
     }
 
     private boolean hasPermission() {
@@ -765,6 +864,7 @@ public final class WatchActivity extends Activity {
 
     private void navigate(Screen target) {
         if (busy) return;
+        if (target == Screen.SETUP && screen != Screen.SETUP) setupParent = screen;
         if (screen == Screen.RECEIVE && target != Screen.RECEIVE) cancelReceive();
         if (screen == Screen.SEND_REPORT && target != Screen.SEND_REPORT) cancelReport();
         screen = target;
@@ -776,6 +876,7 @@ public final class WatchActivity extends Activity {
         if (busy) return;
         hideKeyboard();
         if (screen == Screen.CARDS) finish();
+        else if (screen == Screen.SETUP) navigate(setupParent);
         else navigate(screen == Screen.DIAGNOSTICS ? Screen.SETTINGS : Screen.CARDS);
     }
 
@@ -812,8 +913,7 @@ public final class WatchActivity extends Activity {
                 return;
             }
             receiveMessage = getString(R.string.receive_wait);
-            receiveLink = LocalWatchLink.receive(bluetooth,
-                    cards -> CardStore.appendReceived(getApplicationContext(), cards), new LocalWatchLink.Callback() {
+            receiveLink = LocalWatchLink.receive(bluetooth, getApplicationContext(), new LocalWatchLink.Callback() {
                 @Override public void complete(WatchCardPacket.Result result) {
                     cancelReceive();
                     if (isDestroyed() || isFinishing()) return;
@@ -940,14 +1040,32 @@ public final class WatchActivity extends Activity {
         if (busy) return;
         reportPrepared = false;
         if (requested != Operation.PREPARE_REPORT) diagnosticEvidence = "";
-        operation = requested;
         String targetCardId = busyCardId;
+        boolean hadRecovery = recovery;
+        CardRow toggle = screen == Screen.CARDS
+                && (requested == Operation.START || requested == Operation.STOP) ? cardRows.get(targetCardId) : null;
         inlineError = null;
         inlineCardId = null;
         busy = true;
         message = "";
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        render();
+        Runnable showProgress = () -> {
+            if (toggle != null && toggle.face.isShown()) toggle.showProgress(requested);
+        };
+        if (toggle == null) {
+            render();
+        } else {
+            if (inlineStatus != null) {
+                content.removeView(inlineStatus);
+                inlineStatus = null;
+            }
+            if (resultStatus != null) {
+                content.removeView(resultStatus);
+                resultStatus = null;
+            }
+            setCardActionsEnabled(false);
+            handler.postDelayed(showProgress, CARD_PROGRESS_DELAY_MS);
+        }
         WORK.execute(() -> {
             String result = null;
             boolean completed = false;
@@ -971,7 +1089,12 @@ public final class WatchActivity extends Activity {
             boolean succeeded = completed;
             Throwable finalFailure = operationFailure;
             runOnUiThread(() -> {
+                handler.removeCallbacks(showProgress);
                 if (isDestroyed()) return;
+                if (toggle != null && cardRows.get(targetCardId) == toggle) {
+                    toggle.hideProgress();
+                    setCardActionsEnabled(true);
+                }
                 busy = false;
                 busyCardId = null;
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -995,7 +1118,7 @@ public final class WatchActivity extends Activity {
                 if (succeeded && screen == Screen.CARDS && finalResult != null) {
                     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
                 }
-                render();
+                render(succeeded && toggle != null && cardRows.get(targetCardId) == toggle && !hadRecovery && !busy);
                 if (!permissionPromptShown && !hasPermission() && screen == Screen.CARDS
                         && uiError == null) showSetupPrompt();
             });
@@ -1044,6 +1167,7 @@ public final class WatchActivity extends Activity {
                     .append("\nConfigured: ").append(current.active)
                     .append("\nSaved firmware: ").append(current.firmware)
                     .append("\nOriginal snapshot: ").append(current.snapshot);
+            if (current != null && current.active) output.append("\nExternal reader observation: not recorded");
         } catch (Exception failure) { output.append("\nPending state failure: ").append(failure); }
         return output.append("\n\nRESULT\n").append(result)
                 .append("\n\nOPERATIONS\n").append(evidence)
@@ -1111,6 +1235,19 @@ public final class WatchActivity extends Activity {
     }
 
     private Button button(LinearLayout parent, String label, Runnable action) {
+        Button button = makeButton(label, action);
+        parent.addView(button, buttonLayout());
+        return button;
+    }
+
+    private LinearLayout.LayoutParams buttonLayout() {
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.topMargin = dp(4);
+        layout.bottomMargin = dp(4);
+        return layout;
+    }
+
+    private Button makeButton(String label, Runnable action) {
         Button button = new Button(this);
         button.setText(label);
         button.setTextColor(Color.WHITE);
@@ -1119,22 +1256,17 @@ public final class WatchActivity extends Activity {
         button.setMinHeight(dp(48));
         button.setMinimumHeight(dp(48));
         button.setPadding(dp(10), dp(8), dp(10), dp(8));
-        button.setBackground(buttonBackground(false));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(0xFF1E2939);
+        shape.setCornerRadius(dp(28));
+        button.setBackground(ripple(shape));
         button.setEnabled(!busy);
         button.setAlpha(busy ? 0.45f : 1f);
         button.setOnClickListener(view -> { if (!busy) action.run(); });
-        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
-        layout.topMargin = dp(4);
-        layout.bottomMargin = dp(4);
-        parent.addView(button, layout);
         return button;
     }
 
-    private RippleDrawable buttonBackground(boolean active) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setColor(active ? Color.rgb(37, 69, 105) : Color.rgb(30, 41, 57));
-        shape.setCornerRadius(dp(28));
-        if (active) shape.setStroke(dp(2), ACCENT);
+    private static RippleDrawable ripple(GradientDrawable shape) {
         return new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null);
     }
 

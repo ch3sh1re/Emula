@@ -3,6 +3,7 @@ package dev.dunno.emula;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
 
@@ -17,8 +18,8 @@ import java.util.Objects;
 @SuppressLint("PrivateApi")
 final class OnePlusVendorNfcController {
     private static final String VENDOR_ADAPTER_CLASS = "com.vendor.nfc.VendorNfcAdapter";
-    private static final String PREFS = "oneplus_vendor_hce_restore";
-    private static final String PREF_PENDING = "pending";
+    static final String PREFS = "oneplus_vendor_hce_restore";
+    static final String PREF_PENDING = "pending";
     private static final String PREF_VERSION = "version";
     private static final String PREF_FINGERPRINT = "fingerprint";
     private static final String PREF_MODE = "mode";
@@ -28,6 +29,7 @@ final class OnePlusVendorNfcController {
     private static final int SNAPSHOT_VERSION = 1;
     private static final String NULL_VALUE = "\u0000";
     private static final String SAFE_NFC_PERMISSION = "com.oplus.permission.safe.NFC";
+    private static volatile String deniedFingerprint;
 
     private static final String SETTING_MODE = "hce_access_card_mode";
     private static final String SETTING_ATQA = "hce_access_card_atqa";
@@ -66,6 +68,18 @@ final class OnePlusVendorNfcController {
         return preferences(context).getBoolean(PREF_PENDING, false);
     }
 
+    static boolean isPermissionBlocked(Context context) {
+        return isPermissionBlocked(Build.FINGERPRINT,
+                context.checkSelfPermission(SAFE_NFC_PERMISSION) == PackageManager.PERMISSION_GRANTED);
+    }
+
+    static boolean isPermissionBlocked(String fingerprint, boolean permissionGranted) {
+        return !permissionGranted && fingerprint != null
+                && (fingerprint.equals(deniedFingerprint)
+                    || ("OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/"
+                    + "B.R4T3.55357f5-2eb9868-2eda512:user/release-keys").equals(fingerprint));
+    }
+
     static boolean isPermissionDenied(Throwable failure) {
         Throwable root = unwrap(failure);
         return root instanceof SecurityException && root.getMessage() != null
@@ -78,6 +92,12 @@ final class OnePlusVendorNfcController {
             throw new ResolutionException(Probe.notTargeted(),
                     "OnePlus vendor HCE is not enabled for this device");
         }
+        if (!hasPendingRestore(context) && isPermissionBlocked(context)) {
+            String failure = "OnePlus vendor HCE requires " + SAFE_NFC_PERMISSION
+                    + " on this firmware; trying the Android OEM API instead";
+            throw new ResolutionException(new Probe(true, false, false, false, failure, null), failure);
+        }
+
         Class<?> adapterClass;
         try {
             adapterClass = Class.forName(
@@ -204,6 +224,7 @@ final class OnePlusVendorNfcController {
             report.stage = "COMPLETE";
         } catch (Throwable failure) {
             if (report.vendorCallSucceeded == null && isPermissionDenied(failure)) {
+                deniedFingerprint = snapshot.fingerprint;
                 report.notes.add("Vendor permission denied before any HCE/settings change.");
                 if (capturedNow) {
                     if (!platform.clear()) throw new IllegalStateException(
@@ -410,8 +431,23 @@ final class OnePlusVendorNfcController {
         }
     }
 
-    private static Snapshot loadSnapshot(Context context) {
-        SharedPreferences preferences = preferences(context);
+    static Snapshot loadSnapshot(Context context) {
+        return loadSnapshot(preferences(context));
+    }
+
+    static void requireIdleAccessCard(Context context) {
+        // The OnePlus 12 service reads an absent mode setting as zero.
+        String mode = readSetting(context, SETTING_MODE);
+        if (mode != null && !"0".equals(mode)) {
+            throw new IllegalStateException("OnePlus access-card mode is active or unknown");
+        }
+    }
+
+    static Snapshot currentSnapshot(Context context) {
+        return captureSnapshot(new AndroidPlatform(context, null));
+    }
+
+    static Snapshot loadSnapshot(SharedPreferences preferences) {
         if (!preferences.getBoolean(PREF_PENDING, false)) return null;
         if (preferences.getInt(PREF_VERSION, 0) != SNAPSHOT_VERSION) {
             throw new IllegalStateException("Unsupported OnePlus HCE snapshot version");

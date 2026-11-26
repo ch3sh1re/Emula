@@ -55,12 +55,17 @@ final class WatchHardwareBackend implements WatchNfcSession.Backend {
             OemNfcController.setCardEnabled(activity, uid, true);
             // The AOSP service can return OK without propagating individual SET statuses.
             // Read back when the firmware exposes raw GET; never infer reader activation.
+            OemOperationReport report = OemNfcController.getLastOperationReport();
+            boolean androidProfile = report != null && report.isCompletedAndroidCall();
+            if (androidProfile) report.androidReadbackStatus = "UNAVAILABLE";
             LegacyNfcDiagnostics.ProbeResult readback = null;
             if (LegacyNfcDiagnostics.isRawNciApiAvailable(activity)) {
                 try {
                     readback = LegacyNfcDiagnostics.runReadOnlyProbe(activity);
-                    evidence.append("\nOEM READBACK\n").append(readback.detailedSummary);
+                    if (androidProfile) report.recordAndroidReadback(readback);
+                    else evidence.append("\nOEM READBACK\n").append(readback.detailedSummary);
                 } catch (Exception readFailure) {
+                    if (readFailure instanceof InterruptedException) Thread.currentThread().interrupt();
                     evidence.append("\nOEM readback unavailable: ").append(readFailure);
                 }
             }

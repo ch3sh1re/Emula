@@ -71,6 +71,39 @@ public final class WatchCardPacketTest {
         assertEquals(1, merge.cards.get(0).uid[0]);
     }
 
+    @Test public void colorsAreOptionalForOldPeersAndValidatedForNewPeers() throws IOException {
+        // A v1 phone closes immediately after reading its receipt.
+        ByteArrayOutputStream offer = new ByteArrayOutputStream();
+        assertNull(WatchCardPacket.receiveColors(new ByteArrayInputStream(new byte[0]), offer, 2));
+        // A v1 watch closes immediately after writing its receipt.
+        List<SavedCard> cards = List.of(card("A", 4, 1),
+                new SavedCard("b", "B", new byte[]{1,2,3,4}, 35.5f));
+        ByteArrayOutputStream frame = new ByteArrayOutputStream();
+        WatchCardPacket.sendColors(new ByteArrayInputStream(new byte[0]), frame, cards);
+        assertEquals(0, frame.size());
+
+        assertThrows(IOException.class, () -> WatchCardPacket.sendColors(
+                new ByteArrayInputStream(offer.toByteArray()), new ByteArrayOutputStream(), cards));
+        WatchCardPacket.colorsSaved(offer);
+        WatchCardPacket.sendColors(new ByteArrayInputStream(offer.toByteArray()), frame, cards);
+        byte[] bytes = frame.toByteArray();
+        assertArrayEquals(new float[]{268f, 35.5f}, readColors(bytes, 2), 0);
+        assertThrows(IOException.class, () -> readColors(bytes, 1));
+        for (int end = 1; end < bytes.length; end++) {
+            byte[] truncated = Arrays.copyOf(bytes, end);
+            assertThrows(IOException.class, () -> readColors(truncated, 2));
+        }
+        for (float invalid : new float[]{-1f, 360f, Float.POSITIVE_INFINITY, Float.NaN}) {
+            byte[] broken = bytes.clone();
+            ByteBuffer.wrap(broken).putFloat(bytes.length - 4, invalid);
+            assertThrows(IOException.class, () -> readColors(broken, 2));
+        }
+    }
+
+    private static float[] readColors(byte[] bytes, int count) throws IOException {
+        return WatchCardPacket.receiveColors(new ByteArrayInputStream(bytes), new ByteArrayOutputStream(), count);
+    }
+
     @Test public void everyTruncationIsRejected() throws Exception {
         byte[] frame = WatchCardPacket.encode(List.of(card("Office", 4, 1), card("Gate", 10, 2)));
         for (int i = 0; i < frame.length; i++) rejected(Arrays.copyOf(frame, i));

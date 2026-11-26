@@ -2,7 +2,9 @@ package dev.dunno.emula;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** In-memory evidence for the most recent Android/OEM NFC operation. */
 final class OemOperationReport {
@@ -27,7 +29,11 @@ final class OemOperationReport {
     String profile;
     byte[] atqa;
     byte[] sak;
+    byte[] rats;
     byte[] uid;
+    Integer androidStatus;
+    String androidReadbackStatus;
+    LegacyNfcDiagnostics.ProbeResult androidReadback;
     Boolean vendorLibraryAvailable;
     Boolean vendorAdapterResolved;
     Boolean vendorMethodResolved;
@@ -69,6 +75,37 @@ final class OemOperationReport {
         this.operation = operation;
     }
 
+    boolean isCompletedAndroidCall() {
+        return path == Path.ANDROID_OEM_EXTENSION && Integer.valueOf(0).equals(androidStatus)
+                && "COMPLETE".equals(stage);
+    }
+
+    void recordAndroidReadback(LegacyNfcDiagnostics.ProbeResult probe) {
+        androidReadback = probe;
+        androidReadbackStatus = classifyAndroidReadback(probe.configuration);
+    }
+
+    String classifyAndroidReadback(Map<Integer, byte[]> values) {
+        if (operation != Operation.ACTIVATE) return "OBSERVED_AFTER_DISABLE";
+        if (atqa == null || atqa.length != 2 || sak == null || rats == null || uid == null) {
+            return "EXPECTED_VALUES_UNAVAILABLE";
+        }
+        Map<Integer, byte[]> expected = new LinkedHashMap<>();
+        expected.put(0x30, new byte[] {atqa[0]});
+        expected.put(0x31, new byte[] {atqa[1]});
+        expected.put(0x32, sak);
+        expected.put(0x33, uid);
+        expected.put(0x58, rats);
+        expected.put(0x85, new byte[] {0});
+        boolean incomplete = false;
+        for (Map.Entry<Integer, byte[]> entry : expected.entrySet()) {
+            byte[] actual = values.get(entry.getKey());
+            if (actual == null) incomplete = true;
+            else if (!Arrays.equals(entry.getValue(), actual)) return "MISMATCH";
+        }
+        return incomplete ? "INCOMPLETE" : "MATCH";
+    }
+
     String formatForDisplay() {
         return format(false);
     }
@@ -88,6 +125,17 @@ final class OemOperationReport {
         appendBytes(text, "ATQA", atqa);
         appendBytes(text, "SAK", sak);
         appendBytes(text, "UID", uid);
+
+        if (path == Path.ANDROID_OEM_EXTENSION) {
+            appendBytes(text, "RATS TB1", rats);
+            append(text, "Android service status", androidStatus == null ? null : androidStatus.toString());
+            append(text, "Immediate Android API readback", androidReadbackStatus);
+            if (androidReadback != null) {
+                text.append("\nPOST-ANDROID-API OBSERVATION\n")
+                        .append(detailed ? androidReadback.detailedSummary : androidReadback.userSummary)
+                        .append('\n');
+            }
+        }
 
         if (path == Path.ONEPLUS_VENDOR_HCE || vendorLibraryAvailable != null) {
             text.append('\n').append("ONEPLUS VENDOR HCE\n");
