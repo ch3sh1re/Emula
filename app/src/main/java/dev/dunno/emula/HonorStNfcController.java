@@ -8,8 +8,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.os.Build;
-import android.os.IBinder;
-import android.os.IInterface;
 
 import java.io.FileInputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -18,7 +16,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,7 +24,6 @@ import java.util.concurrent.TimeoutException;
 @SuppressLint("PrivateApi")
 final class HonorStNfcController {
     private static final String ADAPTER = "com.st.android.nfc_extensions.NfcAdapterStExtensions";
-    private static final String DESCRIPTOR = "com.st.android.nfc_extensions.INfcAdapterStExtensions";
     private static final String PREFS = "honor_st_hce_restore";
     private static FutureTask<String> nxpProbe;
 
@@ -93,37 +89,7 @@ final class HonorStNfcController {
         }
         String excluded = nxpControllerFailure();
         if (excluded != null) throw new IllegalStateException(excluded);
-        Class<?> type = Class.forName(ADAPTER, false, context.getClassLoader());
-        Method program = type.getMethod("programHceParameters", boolean.class, byte.class,
-                byte.class, byte.class, byte[].class, byte.class, byte[].class);
-        Method set = type.getMethod("setNciConfig", int.class, byte[].class);
-        if (program.getReturnType() != void.class || set.getReturnType() != void.class) {
-            throw new NoSuchMethodException("Unexpected HONOR ST API signature");
-        }
-        Object service = invoke(type.getMethod("getNfcAdapterStExtensionsInterface"), null);
-        if (!(service instanceof IInterface)) throw new IllegalStateException("ST service is unavailable");
-        IBinder binder = ((IInterface) service).asBinder();
-        if (binder == null || !binder.isBinderAlive() || !DESCRIPTOR.equals(binder.getInterfaceDescriptor())) {
-            throw new IllegalStateException("ST Binder is unavailable or has an unexpected interface");
-        }
-        Object receiver = type.getConstructor().newInstance();
-        if (!LegacyNfcDiagnostics.isRawNciApiAvailable(context)) {
-            throw new IllegalStateException("Read-only GET_CONFIG API is required for HONOR ST verification");
-        }
-        return new MotorolaStNfcController.Api() {
-            @Override public void program(boolean enabled, byte[] uid) throws Exception {
-                invoke(program, receiver, enabled, (byte) 0x06, (byte) 0x0C, (byte) 0x20,
-                        Arrays.copyOf(uid, uid.length), (byte) 0x40, new byte[0]);
-            }
-            @Override public void setConfiguration(int id, byte[] value) throws Exception {
-                invoke(set, receiver, id, Arrays.copyOf(value, value.length));
-            }
-            @Override public Map<Integer, byte[]> readConfiguration(OemOperationReport report) throws Exception {
-                LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(context);
-                report.notes.add(report.stage + "\n" + probe.detailedSummary);
-                return probe.configuration;
-            }
-        };
+        return new StVendorSdk(context);
     }
 
     /** Run on the NFC worker when preparing a report. All calls here are read-only. */

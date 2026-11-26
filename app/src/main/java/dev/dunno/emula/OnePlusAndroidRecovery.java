@@ -24,7 +24,7 @@ final class OnePlusAndroidRecovery {
                 .getBoolean("pending_restore", false)
                 || XiaomiNfcController.hasPendingRestore(context)
                 || MotorolaStNfcController.hasPendingRestore(context)
-                || HonorStNfcController.hasPendingRestore(context);
+                || StPhoneNfcController.hasPendingRestore(context) || HonorStNfcController.hasPendingRestore(context);
     }
 
     static boolean eligible(boolean forced, boolean reviewed, boolean blocked, boolean androidApi,

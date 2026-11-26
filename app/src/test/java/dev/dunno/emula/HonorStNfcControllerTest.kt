@@ -81,5 +81,6 @@ class HonorStNfcControllerTest {
     private fun capabilities(android: Boolean = false, honor: Boolean = true, pending: Boolean = false) =
         OemNfcController.Capabilities(android, null, OnePlusVendorNfcController.Probe.notTargeted(),
             false, MotorolaStNfcController.Probe(false, false, null), false,
-            MotorolaStNfcController.Probe(true, honor, if (honor) null else "service missing"), pending)
+            MotorolaStNfcController.Probe(true, honor, if (honor) null else "service missing"), pending,
+            MotorolaStNfcController.Probe(false, false, null), false)
 }

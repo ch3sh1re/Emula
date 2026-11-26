@@ -53,6 +53,10 @@ final class NfcDiagnosticAssessment {
                     scope + "; " + report.failure);
         }
         if (report.operation == OemOperationReport.Operation.ACTIVATE && "COMPLETE".equals(report.stage)) {
+            if (report.path == OemOperationReport.Path.ST_VENDOR_HCE
+                    && "ST_CONFIG_READBACK_VERIFIED_READER_UNVERIFIED".equals(report.result)) {
+                return new Finding("OEM_READBACK_MATCH_READER_REQUIRED", scope + "; ST profile and NFC parameters matched");
+            }
             if ("MISMATCH".equals(report.androidReadbackStatus)) {
                 return new Finding("OEM_READBACK_MISMATCH", scope + "; Android service status=" + report.androidStatus);
             }

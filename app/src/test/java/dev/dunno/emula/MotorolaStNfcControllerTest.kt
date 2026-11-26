@@ -342,6 +342,153 @@ class MotorolaStNfcControllerTest {
         assertFalse(report.formatDetailed().contains("MOTOROLA ST VENDOR HCE"))
     }
 
+    @Test
+    fun phoneTrialTargetsTheTwoStDeviceFamiliesAcrossRegions() {
+        assertTrue(StPhoneNfcController.targets(35, "Xiaomi", "23124RA7EO", "sapphiren"))
+        assertTrue(StPhoneNfcController.targets(36, "Redmi", "another regional model", "sapphiren"))
+        assertTrue(StPhoneNfcController.targets(35, "Fairphone", "FP5", "FP5"))
+        assertFalse(StPhoneNfcController.targets(34, "Fairphone", "FP5", "FP5"))
+        assertFalse(StPhoneNfcController.targets(35, "Xiaomi", "23117RA68G", "emerald"))
+        assertFalse(StPhoneNfcController.targets(36, "OnePlus", "CPH2581", "OP595DL1"))
+    }
+
+    @Test
+    fun phoneProfileSurvivesCardSwitchesAndStartupRestoresOnlyOwnedFields() {
+        val api = ProfileApi()
+        val store = MemoryStore()
+        val original = api.profile.copyOf()
+        val nci = RawNciCodec.encodeConfiguration(api.values)
+        api.beforeProgram = { assertNotNull(store.snapshot?.profile) }
+        for (size in listOf(10, 4, 7)) {
+            val selected = ByteArray(size) { (it + size).toByte() }
+            val result = activate(api, store, selected)
+            assertEquals("COMPLETE", result.stage)
+            assertArrayEquals(selected, api.values[0x33])
+            assertArrayEquals(selected, api.profile.copyOfRange(72, 72 + size))
+        }
+        // Other fields in the same vendor record belong to the firmware.
+        api.profile[4] = 42
+        val startup = OemOperationReport(OemOperationReport.Operation.STARTUP_RESTORE)
+        MotorolaStNfcController.change(api, store, firmware, uid, false, startup)
+        original[4] = 42
+        assertArrayEquals(original, api.profile)
+        assertEquals(nci, RawNciCodec.encodeConfiguration(api.values))
+        assertEquals("ST_ORIGINAL_NCI_AND_HCE_PROFILE_VERIFIED", startup.result)
+        assertNull(store.snapshot)
+    }
+
+    @Test
+    fun phoneProfileRejectsIncompleteChangingOrActiveBaselinesBeforeAnyWrite() {
+        for (bad in listOf(ByteArray(1), ByteArray(250), ByteArray(100).apply { this[20] = 7 })) {
+            val api = ProfileApi().apply { profile = bad }
+            val store = MemoryStore()
+            expectFailure { activate(api, store) }
+            assertTrue(api.calls.isEmpty())
+            assertNull(store.snapshot)
+        }
+        val api = ProfileApi().apply { unstable = true }
+        val store = MemoryStore()
+        expectFailure { activate(api, store) }
+        assertNull(store.snapshot)
+        assertTrue(api.calls.isEmpty())
+    }
+
+    @Test
+    fun phoneRejectsSilentSdkNoOpsAndKeepsRecoveryUntilReadbackMatches() {
+        val api = ProfileApi()
+        val store = MemoryStore()
+        val original = api.profile.copyOf()
+        api.ignoreProfileActivation = true
+        val failed = report()
+        expectFailure { change(api, store, true, failed) }
+        assertEquals(true, failed.rollbackSucceeded)
+        assertTrue(failed.notes.contains("Failed stage: VERIFY_ST_HCE_PROFILE"))
+        assertArrayEquals(original, api.profile)
+        assertNull(store.snapshot)
+
+        api.ignoreProfileActivation = false
+        activate(api, store)
+        api.ignoreProfileRestore = true
+        expectFailure { deactivate(api, store) }
+        assertNotNull(store.snapshot)
+        api.ignoreProfileRestore = false
+        deactivate(api, store)
+        assertArrayEquals(original, api.profile)
+        assertNull(store.snapshot)
+    }
+
+    @Test
+    fun phoneKeepsSnapshotAndDoesNotDisableAnotherActiveProfileOrAnotherFirmware() {
+        val api = ProfileApi()
+        val store = MemoryStore()
+        activate(api, store)
+        val before = api.calls.toList()
+        expectFailure { MotorolaStNfcController.change(api, store, "different firmware", uid, false, report()) }
+        api.profile[72] = 99
+        expectFailure { deactivate(api, store) }
+        assertNotNull(store.snapshot)
+        assertEquals(before, api.calls)
+    }
+
+    @Test
+    fun phoneLeavesExternallyChangedControllerValuesAlone() {
+        val api = ProfileApi()
+        val store = MemoryStore()
+        activate(api, store)
+        val calls = api.calls.toList()
+        api.values[0x33] = byteArrayOf(1, 2, 3, 4)
+        expectFailure { deactivate(api, store) }
+        assertEquals(calls, api.calls)
+        assertNotNull(store.snapshot)
+        api.values[0x33] = uid.copyOf()
+        deactivate(api, store)
+        assertNull(store.snapshot)
+    }
+
+    @Test
+    fun phoneDoesNotReportSuccessIfTheServiceChangesAnUnrelatedProfileField() {
+        val api = ProfileApi().apply { changeOtherFieldOnEnable = true }
+        val original = api.profile.copyOf()
+        val store = MemoryStore()
+        val failed = report()
+        expectFailure { change(api, store, true, failed) }
+        assertTrue(failed.notes.contains("Failed stage: VERIFY_ST_HCE_PROFILE"))
+        assertEquals(false, failed.rollbackSucceeded)
+        assertNotNull(store.snapshot)
+        assertNotEquals(original[4], api.profile[4])
+        assertArrayEquals(byteArrayOf(8, 0, 0, 0), api.values[0x33])
+        api.profile[4] = original[4]
+        deactivate(api, store)
+        assertNull(store.snapshot)
+    }
+
+    private class ProfileApi : FakeApi(), StHceProfile.Access {
+        var profile = ByteArray(96) { (it + 19).toByte() }.apply { this[20] = 0 }
+        var unstable = false
+        var ignoreProfileActivation = false
+        var ignoreProfileRestore = false
+        var changeOtherFieldOnEnable = false
+
+        override fun readHceProfile(): ByteArray {
+            if (unstable) profile[0]++
+            return profile.copyOf()
+        }
+
+        override fun restoreHceProfile(value: ByteArray) {
+            calls += "restore profile"
+            if (!ignoreProfileRestore) profile = value.copyOf()
+        }
+
+        override fun program(enabled: Boolean, uid: ByteArray) {
+            super.program(enabled, uid)
+            if (enabled && ignoreProfileActivation) return
+            profile[26] = 0x20
+            profile[20] = if (enabled) uid.size.toByte() else 0
+            if (enabled) uid.copyInto(profile, 72)
+            if (enabled && changeOtherFieldOnEnable) profile[4]++
+        }
+    }
+
     private fun report() = OemOperationReport(OemOperationReport.Operation.ACTIVATE)
     private fun activate(api: FakeApi, store: MemoryStore, target: ByteArray = uid) = report().also {
         MotorolaStNfcController.change(api, store, firmware, target, true, it)
@@ -370,7 +517,7 @@ class MotorolaStNfcControllerTest {
         override fun clear() { snapshot = null }
     }
 
-    private class FakeApi : MotorolaStNfcController.Api {
+    private open class FakeApi : MotorolaStNfcController.Api {
         val values = linkedMapOf(
             0x30 to byteArrayOf(4), 0x31 to byteArrayOf(0), 0x32 to byteArrayOf(0x20),
             0x33 to byteArrayOf(8, 0, 0, 0), 0x58 to byteArrayOf(0x70),

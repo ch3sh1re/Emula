@@ -8,6 +8,7 @@ import android.os.Build;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
@@ -185,6 +186,17 @@ final class MotorolaStNfcController {
             return;
         }
 
+        if (snapshot != null && snapshot.profile != null) {
+            report.stage = "ST_RESTORE_PREVIOUS_CARD";
+            OemOperationReport previous = new OemOperationReport(OemOperationReport.Operation.DEACTIVATE);
+            previous.path = report.path;
+            try {
+                restore(api, store, snapshot, previous);
+            } finally {
+                report.notes.add("Previous card restore: " + previous.stage + " / " + previous.snapshotState);
+            }
+            snapshot = null;
+        }
         report.stage = "SNAPSHOT_ORIGINAL_ST_CONFIG";
         if (snapshot == null) {
             Map<Integer, byte[]> original = api.readConfiguration(report);
@@ -194,7 +206,13 @@ final class MotorolaStNfcController {
             if (!Arrays.equals(new byte[] {1}, original.get(0x85))) {
                 throw new IllegalStateException("ST controller already has custom RF configuration");
             }
-            snapshot = new Snapshot(firmware, original);
+            StHceProfile profile = null;
+            if (api instanceof StHceProfile.Access) {
+                report.stage = "SNAPSHOT_ORIGINAL_ST_HCE_PROFILE";
+                profile = StHceProfile.capture((StHceProfile.Access) api, uid);
+                requireMatches(original, api.readConfiguration(report));
+            }
+            snapshot = new Snapshot(firmware, original, profile);
             store.save(snapshot); // Durable before the first vendor write.
             report.snapshotState = "CAPTURED";
         } else {
@@ -210,10 +228,17 @@ final class MotorolaStNfcController {
             Map<Integer, byte[]> actual = api.readConfiguration(report);
             Map<Integer, byte[]> expected = expectedConfiguration(uid);
             requireMatches(expected, actual);
+            if (snapshot.profile != null) {
+                report.stage = "VERIFY_ST_HCE_PROFILE";
+                snapshot.profile.verifyActive(((StHceProfile.Access) api).readHceProfile());
+                report.stage = "SAVE_VERIFIED_ST_ACTIVATION";
+                store.save(new Snapshot(firmware, snapshot.configuration, snapshot.profile, true));
+            }
             report.result = "ST_CONFIG_READBACK_VERIFIED_READER_UNVERIFIED";
             report.stage = "COMPLETE";
         } catch (Exception failure) {
             report.failure = describe(failure);
+            if (snapshot.profile != null) report.notes.add("Failed stage: " + report.stage);
             if (report.vendorCallSucceeded == null) report.vendorCallSucceeded = false;
             report.rollbackAttempted = true;
             try {
@@ -227,6 +252,7 @@ final class MotorolaStNfcController {
                 report.rollbackSucceeded = false;
                 report.rollbackFailure = describe(rollbackFailure);
                 report.stRollback.failure = report.rollbackFailure;
+                if (snapshot.profile != null) report.stRollback.notes.add("Failed stage: " + report.stRollback.stage);
                 report.stRollback.stage = "FAILED";
                 failure.addSuppressed(rollbackFailure);
             }
@@ -239,26 +265,56 @@ final class MotorolaStNfcController {
             OemOperationReport report) throws Exception {
         validateConfiguration(snapshot.configuration);
         report.snapshotState = "RESTORE_PENDING";
+        if (snapshot.profile != null) {
+            report.stage = "CHECK_ST_HCE_PROFILE_OWNERSHIP";
+            snapshot.profile.checkOwnership(((StHceProfile.Access) api).readHceProfile());
+            report.stage = "CHECK_ST_CONFIG_OWNERSHIP";
+            Map<Integer, byte[]> live = api.readConfiguration(report);
+            Map<Integer, byte[]> active = expectedConfiguration(snapshot.profile.uid);
+            validateConfiguration(live);
+            for (int id : PARAMETERS) {
+                byte[] value = live.get(id);
+                // A prior interrupted disable can leave the controller's default UID.
+                if (id == 0x33 && (value.length == 0 || Arrays.equals(value, new byte[] {8, 0, 0, 0}))) continue;
+                if (!Arrays.equals(value, snapshot.configuration.get(id)) && !Arrays.equals(value, active.get(id))) {
+                    throw new IllegalStateException(String.format(java.util.Locale.US,
+                            "ST setting 0x%02X changed outside this session", id));
+                }
+            }
+        }
         report.stage = "ST_RESTORE_VENDOR_DEFAULTS";
         api.program(false, new byte[UidCodec.DEFAULT_UID_LENGTH]);
         report.vendorCallSucceeded = true;
-        report.notes.add("Vendor disable resets custom_config and requests default routing/NDEF-NFCEE. "
-                + "Exact readback below covers the seven standard NCI parameters only.");
+        if (snapshot.profile == null) {
+            report.notes.add("Vendor disable resets custom_config and requests default routing/NDEF-NFCEE. "
+                    + "Exact readback below covers the seven standard NCI parameters only.");
+        }
         report.stage = "ST_RESTORE_ORIGINAL_NCI_CONFIG";
+        Map<Integer, byte[]> live = null;
+        if (snapshot.profile != null) {
+            live = api.readConfiguration(report);
+            validateConfiguration(live);
+        }
         // ST's service coordinates discovery and updates its stack cache for these setters.
         // NFCC_CONFIG_CONTROL is restored last, after all RF parameters.
         for (int id : PARAMETERS) {
             byte[] value = snapshot.configuration.get(id);
+            if (live != null && Arrays.equals(value, live.get(id))) continue;
             report.notes.add(String.format(java.util.Locale.US,
                     "ST setNciConfig(0x%02X): %s; controller status unavailable from vendor API",
                     id, RawNciCodec.hex(value)));
             api.setConfiguration(id, Arrays.copyOf(value, value.length));
         }
+        if (snapshot.profile != null) {
+            report.stage = "ST_RESTORE_ORIGINAL_HCE_PROFILE";
+            snapshot.profile.restore((StHceProfile.Access) api, snapshot.activationVerified);
+        }
         report.stage = "VERIFY_ST_RESTORE";
         requireMatches(snapshot.configuration, api.readConfiguration(report));
         store.clear(); // Keep the snapshot on every failure, including a silent vendor no-op.
         report.snapshotState = "RESTORED_AND_CLEARED";
-        report.result = "ST_ORIGINAL_NCI_CONFIG_VERIFIED";
+        report.result = snapshot.profile == null ? "ST_ORIGINAL_NCI_CONFIG_VERIFIED"
+                : "ST_ORIGINAL_NCI_AND_HCE_PROFILE_VERIFIED";
         report.stage = "COMPLETE";
     }
 
@@ -364,7 +420,17 @@ final class MotorolaStNfcController {
     static final class Snapshot {
         final String firmware;
         final Map<Integer, byte[]> configuration;
+        final StHceProfile profile;
+        final boolean activationVerified;
         Snapshot(String firmware, Map<Integer, byte[]> configuration) {
+            this(firmware, configuration, null);
+        }
+        Snapshot(String firmware, Map<Integer, byte[]> configuration, StHceProfile profile) {
+            this(firmware, configuration, profile, false);
+        }
+        Snapshot(String firmware, Map<Integer, byte[]> configuration, StHceProfile profile, boolean verified) {
+            this.profile = profile;
+            this.activationVerified = verified;
             this.firmware = firmware;
             this.configuration = RawNciCodec.decodeConfiguration(
                     RawNciCodec.encodeConfiguration(configuration));
@@ -382,24 +448,38 @@ final class MotorolaStNfcController {
         }
     }
 
-    private static final class PreferenceStore implements Store {
+    static final class PreferenceStore implements Store {
         private final SharedPreferences preferences;
-        PreferenceStore(Context context) {
-            preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        private final boolean profileRequired;
+        PreferenceStore(Context context) { this(context, PREFS, false); }
+
+        PreferenceStore(Context context, String name, boolean profileRequired) {
+            preferences = context.getSharedPreferences(name, Context.MODE_PRIVATE);
+            this.profileRequired = profileRequired;
         }
         @Override public Snapshot load() {
             if (!preferences.getBoolean("pending", false)) return null;
-            if (preferences.getInt("version", 0) != 1) {
+            if (preferences.getInt("version", 0) != (profileRequired ? 2 : 1)) {
                 throw new IllegalStateException("Unsupported ST restore snapshot version");
             }
+            StHceProfile profile = profileRequired ? new StHceProfile(
+                    Base64.getDecoder().decode(preferences.getString("hce", "")),
+                    Base64.getDecoder().decode(preferences.getString("uid", ""))) : null;
             return new Snapshot(preferences.getString("firmware", ""),
-                    RawNciCodec.decodeConfiguration(preferences.getString("config", null)));
+                    RawNciCodec.decodeConfiguration(preferences.getString("config", null)), profile,
+                    profileRequired && preferences.getBoolean("verified", false));
         }
         @Override public void save(Snapshot snapshot) {
-            if (!preferences.edit().putInt("version", 1).putBoolean("pending", true)
-                    .putString("firmware", snapshot.firmware)
-                    .putString("config", RawNciCodec.encodeConfiguration(snapshot.configuration))
-                    .commit()) {
+            if (profileRequired != (snapshot.profile != null)) throw new IllegalStateException("Missing ST profile");
+            SharedPreferences.Editor editor = preferences.edit().putInt("version", profileRequired ? 2 : 1)
+                    .putBoolean("pending", true).putString("firmware", snapshot.firmware)
+                    .putString("config", RawNciCodec.encodeConfiguration(snapshot.configuration));
+            if (profileRequired) {
+                editor.putString("hce", Base64.getEncoder().encodeToString(snapshot.profile.original))
+                        .putString("uid", Base64.getEncoder().encodeToString(snapshot.profile.uid))
+                        .putBoolean("verified", snapshot.activationVerified);
+            }
+            if (!editor.commit()) {
                 throw new IllegalStateException("Could not persist original ST configuration");
             }
         }
