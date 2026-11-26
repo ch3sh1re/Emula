@@ -1,5 +1,10 @@
 # Changelog
 
+## Wear OS 1.0.7 (10008)
+
+- Add the Emula cards tile to your watch and tap a saved card to start or stop emulation.
+- Set a timer for 3, 5, 10 or 30 seconds to stop automatically. The watch can vibrate when NFC is restored, even after you return to the watch face.
+
 ## Phone 1.0.40 (60)
 
 - Saved cards keep their colors when other cards are removed. Sending cards to Wear 1.0.6 also updates their colors on the watch.
