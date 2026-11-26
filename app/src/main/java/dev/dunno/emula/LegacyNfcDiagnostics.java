@@ -74,7 +74,7 @@ final class LegacyNfcDiagnostics {
         AppLog.info("Read-only raw NCI probe: result=" + report.result
                 + ", parameters=" + values.size());
         return new ProbeResult(userSummary, detailedSummary,
-                "result=" + report.result + ", parameters=" + values.size(), values);
+                "result=" + report.result + ", parameters=" + values.size(), values, report);
     }
 
     interface ConfigurationReader {
@@ -263,7 +263,6 @@ final class LegacyNfcDiagnostics {
                             entry.getKey(), RawNciCodec.parameterName(entry.getKey()),
                             RawNciCodec.hex(entry.getValue())));
                 }
-                text.append("Excluded from the configuration snapshot; cannot authorize writes.\n");
             } catch (IllegalArgumentException invalid) {
                 text.append("Observed response not decoded: ").append(invalid.getMessage()).append('\n');
             }
@@ -422,12 +421,19 @@ final class LegacyNfcDiagnostics {
         final String detailedSummary;
         final String logSummary;
         final Map<Integer, byte[]> configuration;
+        final RawOperationReport report;
 
         ProbeResult(String userSummary, String detailedSummary, String logSummary,
                 Map<Integer, byte[]> configuration) {
+            this(userSummary, detailedSummary, logSummary, configuration, null);
+        }
+
+        ProbeResult(String userSummary, String detailedSummary, String logSummary,
+                Map<Integer, byte[]> configuration, RawOperationReport report) {
             this.userSummary = userSummary;
             this.detailedSummary = detailedSummary;
             this.logSummary = logSummary;
+            this.report = report;
             Map<Integer, byte[]> snapshot = new LinkedHashMap<>();
             for (Map.Entry<Integer, byte[]> entry : configuration.entrySet()) {
                 snapshot.put(entry.getKey(), Arrays.copyOf(

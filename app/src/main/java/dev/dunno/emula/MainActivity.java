@@ -72,7 +72,6 @@ public final class MainActivity extends Activity {
     private static final int DIALOG_SURFACE = AppDialogs.SURFACE;
     private static final int TEXT_SECONDARY = AppDialogs.SECONDARY;
     private static final int ACCENT = AppDialogs.ACCENT;
-    private static final int ACTIVE_BORDER = Color.rgb(218, 240, 255);
     private static final int ERROR_TEXT = AppDialogs.ERROR;
 
     private static final String STATE_EDITOR_OPEN = "editor.open";
@@ -108,8 +107,6 @@ public final class MainActivity extends Activity {
     private static final long PERMISSION_CHECK_INTERVAL_MILLIS = 1_000;
     private static final long SNACKBAR_DURATION_MILLIS = 2_600;
     private static final long ERROR_SNACKBAR_DURATION_MILLIS = 5_200;
-    private static final float CARD_START_HUE = 268f;
-    private static final float GOLDEN_ANGLE_DEGREES = 137.50776f;
 
     private final AtomicBoolean tagHandled = new AtomicBoolean(false);
 
@@ -185,7 +182,6 @@ public final class MainActivity extends Activity {
         // Edge-to-edge is enforced on every supported version (minSdk 35, targetSdk 36).
         // Draw the background behind the bars and keep their icons light for our dark UI.
         getWindow().setBackgroundDrawable(new ColorDrawable(BACKGROUND));
-        adapter = NfcAdapter.getDefaultAdapter(this);
         nfc = PhoneNfcRuntime.get(this);
         if (savedInstanceState != null) {
             mainSearchOpen = savedInstanceState.getBoolean(STATE_SEARCH_OPEN);
@@ -233,7 +229,7 @@ public final class MainActivity extends Activity {
                 || permissionDialog != null || nfcConsentDialog != null
                 || cardTransfer.hasPendingImport()));
         busy = nfc.isBusy();
-        restoreDefaultsAtSessionStart();
+        if (!nfc.session.needsForegroundBootCheck()) restoreDefaultsAtSessionStart();
 
         if (savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_EDITOR_OPEN, false)) {
@@ -269,6 +265,13 @@ public final class MainActivity extends Activity {
         super.onResume();
         resumed = true;
         nfc.resumeUi(this);
+        if (nfc.session.needsForegroundBootCheck()) {
+            nfc.checkForegroundBootRecord((ignored, failure) -> {
+                if (!resumed || isFinishing() || isDestroyed()) return;
+                if (failure == null) showIdleStatus();
+                else setStatus(PhoneNfcRuntime.message(this, failure));
+            });
+        }
         refreshPermissionUi();
         resumeEditorReaderIfReady();
         showPermissionRequestIfNeeded();
@@ -540,8 +543,8 @@ public final class MainActivity extends Activity {
             cardsContainer.addView(createEmptyCard(), new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(164)));
         } else {
-            for (int i = 0; i < cards.size(); i++) {
-                View cardView = createCardView(cards.get(i), i);
+            for (SavedCard card : cards) {
+                View cardView = createCardView(card);
                 displayedCardViews.add(cardView);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(132));
@@ -726,7 +729,7 @@ public final class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(16), dp(14), dp(12), dp(14));
             row.setMinimumHeight(dp(82));
-            row.setBackground(cardBackground(i, checked));
+            row.setBackground(cardBackground(card, checked));
             row.setForeground(new RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)),
                     null, rounded(Color.WHITE, 22)));
             row.setClickable(true);
@@ -938,12 +941,12 @@ public final class MainActivity extends Activity {
         return empty;
     }
 
-    private View createCardView(SavedCard card, int index) {
+    private View createCardView(SavedCard card) {
         boolean active = CardSession.isActive(card.id);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(20), dp(16), dp(14), dp(16));
-        panel.setBackground(cardBackground(index, active));
+        panel.setBackground(cardBackground(card, active));
         panel.setClickable(true);
         panel.setFocusable(true);
         panel.setElevation(dp(active ? 9 : 2));
@@ -1047,9 +1050,12 @@ public final class MainActivity extends Activity {
     private void showAppMenu(View anchor) {
         if (busy || readerMode) return;
         PopupMenu popup = new PopupMenu(this, anchor);
-        boolean modernApi = OemNfcController.isUidEmulationSupported(this);
+        boolean rawTrial = NfcActivationPolicy.requiresRawTrial(
+                Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT);
+        boolean modernApi = !rawTrial && OemNfcController.isUidEmulationSupported(this);
         boolean rawAvailable = LegacyNfcController.isExperimentalAvailable(this)
-                || XiaomiNfcController.isTargetDevice() || XiaomiNfcController.hasPendingRestore(this);
+                || XiaomiNfcController.isTargetDevice() || XiaomiNfcController.hasPendingRestore(this)
+                || (rawTrial && LegacyNfcDiagnostics.isRawNciApiAvailable(this));
         if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget()
                 || MotorolaStNfcController.hasPendingRestore(this) || HonorStNfcController.isTargetDevice()
                 || HonorStNfcController.hasPendingRestore(this)) {
@@ -1063,6 +1069,8 @@ public final class MainActivity extends Activity {
             rawMode.setChecked(rawOnly || isRawModeForced());
             rawMode.setEnabled(!rawOnly);
             if (HonorStNfcController.hasPendingRestore(this)
+                    || OppoNxpRawController.hasPendingRestore(this)
+                    || (OnePlusRawRecovery.isTarget() && CardSession.getActiveCardId() != null)
                     || MotorolaStNfcController.hasPendingRestore(this)
                     || ((MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget())
                         && CardSession.getActiveCardId() != null)
@@ -1121,7 +1129,8 @@ public final class MainActivity extends Activity {
     private void confirmRawModeEnable() {
         new AppDialogs.Builder(this)
                 .setTitle(R.string.raw_mode_dialog_title)
-                .setMessage(R.string.raw_mode_dialog_message)
+                .setMessage(OnePlusRawRecovery.selected(this, true)
+                        ? R.string.oneplus_raw_recovery_message : R.string.raw_mode_dialog_message)
                 .setNegativeButton(R.string.action_cancel, null)
                 .setPositiveButton(R.string.action_enable,
                         (dialog, which) -> setRawModeForced(true))
@@ -1134,9 +1143,9 @@ public final class MainActivity extends Activity {
         boolean rawApi = LegacyNfcDiagnostics.isRawNciApiAvailable(this);
         boolean permission = hasWriteSecureSettings();
         String initialSummary = diagnosticSummary(
-                oemCapabilities, rawApi, permission, null);
+                oemCapabilities, rawApi, permission, null, null);
         String[] detailedSummary = new String[] {
-                diagnosticDetailedSummary(oemCapabilities, rawApi, permission, null)
+                diagnosticDetailedSummary(oemCapabilities, rawApi, permission, null, null)
         };
 
         Dialog dialog = new Dialog(this);
@@ -1171,6 +1180,7 @@ public final class MainActivity extends Activity {
         panel.addView(reportScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
+        // Metadata and triage are useful even when NFC or the raw API is unavailable.
         diagnosticsText.append("\n\n" + getString(R.string.diagnostics_prepare_report_hint));
         Button probeButton = new Button(this);
         probeButton.setAllCaps(false);
@@ -1222,30 +1232,40 @@ public final class MainActivity extends Activity {
             reportScroll.scrollTo(0, 0);
             Context app = getApplicationContext();
             nfc.submit(false, state -> {
-                boolean enabled = adapter != null && adapter.isEnabled();
+                boolean enabled = isNfcEnabled(app);
                 String vendorDetails = NfcStackDiagnostics.collect(app);
-                if (!enabled || !permission) return new String[] {vendorDetails, vendorDetails};
-                vendorDetails += "\n\n" + XiaomiNfcController.capabilities(app, true);
-                String honor = HonorStNfcController.diagnostics(app);
-                if (!honor.isEmpty()) vendorDetails += "\n\n" + honor;
-                try {
-                    if (!rawApi) return new String[] {vendorDetails, vendorDetails};
-                    LegacyNfcDiagnostics.ProbeResult probe = LegacyNfcDiagnostics.runReadOnlyProbe(app);
-                    return new String[] {probe.userSummary + "\n\n" + vendorDetails,
-                            probe.detailedSummary + "\n\n" + vendorDetails};
-                } catch (Throwable error) {
-                    String message = getString(R.string.diagnostics_failed, safeMessage(error));
-                    return new String[] {message + "\n\n" + vendorDetails, message + "\n\n" + vendorDetails};
+                if (enabled && permission) {
+                    String xiaomi = XiaomiNfcController.diagnosticProbe(app);
+                    if (!xiaomi.isEmpty()) vendorDetails += "\n\n" + xiaomi;
+                    String honor = HonorStNfcController.diagnostics(app);
+                    if (!honor.isEmpty()) vendorDetails += "\n\n" + honor;
                 }
+                LegacyNfcDiagnostics.ProbeResult probe = null;
+                String probeFailure = null;
+                if (rawApi && enabled && permission) {
+                    try { probe = LegacyNfcDiagnostics.runReadOnlyProbe(app); }
+                    catch (Exception | LinkageError error) { probeFailure = safeMessage(error); }
+                }
+                String assessment = NfcDiagnosticAssessment.format(enabled, permission,
+                        oemCapabilities.isSupported(), rawApi,
+                        state.backend.activeId() == null && state.backend.recoveryPending(),
+                        OemNfcController.getLastOperationReport(), LegacyNfcController.getLastOperationReport(),
+                        probe == null ? null : probe.report, probeFailure);
+                String skipped = probeFailure == null ? "READ-ONLY PROBE\nNot run"
+                        : getString(R.string.diagnostics_failed, probeFailure);
+                return new String[] {(probe == null ? skipped : probe.userSummary)
+                        + "\n\n" + vendorDetails,
+                        (probe == null ? skipped : probe.detailedSummary)
+                        + "\n\n" + vendorDetails, assessment};
             }, (result, failure) -> {
                 if (isDestroyed() || !dialog.isShowing()) return;
                 if (failure == null) {
-                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result[0]));
-                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result[1]);
+                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, result[0], result[2]));
+                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, result[1], result[2]);
                 } else {
                     String message = getString(R.string.diagnostics_failed, safeMessage(failure));
-                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, message));
-                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, message);
+                    diagnosticsText.setText(diagnosticSummary(oemCapabilities, rawApi, permission, message, null));
+                    detailedSummary[0] = diagnosticDetailedSummary(oemCapabilities, rawApi, permission, message, null);
                 }
                 reportScroll.scrollTo(0, 0);
                 activeProbeButton.setEnabled(true);
@@ -1287,16 +1307,20 @@ public final class MainActivity extends Activity {
 
     private String diagnosticSummary(OemNfcController.Capabilities oemCapabilities,
             boolean rawApi,
-            boolean permission, String result) {
+            boolean permission, String result, String assessment) {
         StringBuilder summary = new StringBuilder("Emula ")
                 .append(BuildConfig.VERSION_NAME).append(" (")
-                .append(BuildConfig.VERSION_CODE).append(")\n\nDEVICE\n")
+                .append(BuildConfig.VERSION_CODE).append(")\nForce raw mode: ")
+                .append(isRawModeForced()).append("\n\nDEVICE\n")
                 .append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
                 .append("Android ").append(Build.VERSION.RELEASE)
                 .append(" / API ").append(Build.VERSION.SDK_INT)
+                .append(assessment == null ? "" : "\n\n" + assessment)
                 .append("\n\nCAPABILITIES\n")
                 .append(oemCapabilities.format(false))
-                .append('\n').append(XiaomiNfcController.capabilities(this, false))
+                .append(OnePlusRecoveryGuidance.describe(this, true))
+                .append(OppoNxpRawController.diagnosticSummary(this))
+                .append('\n').append(XiaomiNfcController.capabilities(this))
                 .append('\n')
                 .append(MotorolaStNfcController.rawModeStatus(this, false))
                 .append('\n')
@@ -1322,12 +1346,12 @@ public final class MainActivity extends Activity {
 
     private String diagnosticDetailedSummary(
             OemNfcController.Capabilities oemCapabilities, boolean rawApi,
-            boolean permission, String result) {
+            boolean permission, String result, String assessment) {
         StringBuilder summary = new StringBuilder("APP\n")
                 .append(BuildConfig.APPLICATION_ID).append('\n')
                 .append("Version: ").append(BuildConfig.VERSION_NAME)
                 .append(" (").append(BuildConfig.VERSION_CODE).append(")\n")
-                .append("NFC enabled: ").append(adapter != null && adapter.isEnabled())
+                .append("NFC enabled: ").append(isNfcEnabled(this))
                 .append('\n').append("Force raw mode: ").append(isRawModeForced())
                 .append("\n\nDEVICE\n")
                 .append("Build.MANUFACTURER: ").append(Build.MANUFACTURER).append('\n')
@@ -1338,9 +1362,12 @@ public final class MainActivity extends Activity {
                 .append("Build.FINGERPRINT: ").append(Build.FINGERPRINT).append('\n')
                 .append("Android: ").append(Build.VERSION.RELEASE)
                 .append(" / API ").append(Build.VERSION.SDK_INT)
+                .append(assessment == null ? "" : "\n\n" + assessment)
                 .append("\n\nCAPABILITIES\n")
                 .append(oemCapabilities.format(true))
-                .append('\n').append(XiaomiNfcController.capabilities(this, false))
+                .append(OnePlusRecoveryGuidance.describe(this, false))
+                .append(OppoNxpRawController.diagnosticSummary(this))
+                .append('\n').append(XiaomiNfcController.capabilities(this))
                 .append('\n')
                 .append(MotorolaStNfcController.rawModeStatus(this, true))
                 .append('\n')
@@ -1381,13 +1408,8 @@ public final class MainActivity extends Activity {
     }
 
     private void openDiagnosticsEmail(String diagnostics) {
-        String subject = getString(R.string.diagnostics_email_subject,
-                Build.MANUFACTURER, Build.MODEL);
-        String body = getString(R.string.diagnostics_email_body, diagnostics);
-        Uri mailto = Uri.parse("mailto:" + getString(R.string.diagnostics_email_address)
-                + "?subject=" + Uri.encode(subject) + "&body=" + Uri.encode(body));
         try {
-            startActivity(new Intent(Intent.ACTION_SENDTO, mailto));
+            startActivity(DiagnosticsEmail.draft(this, diagnostics));
         } catch (ActivityNotFoundException e) {
             new AppDialogs.Builder(this)
                     .setTitle(R.string.diagnostics_email_unavailable_title)
@@ -1878,8 +1900,18 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private static boolean isNfcEnabled(Context context) {
+        NfcAdapter current = NfcAdapter.getDefaultAdapter(context);
+        return current != null && current.isEnabled();
+    }
+
     private void enableReaderModeForEditor() {
-        if (!resumed || adapter == null || editorDialog == null || !editorDialog.isShowing()) {
+        if (!resumed || editorDialog == null || !editorDialog.isShowing()) {
+            return;
+        }
+        adapter = NfcAdapter.getDefaultAdapter(this);
+        if (adapter == null) {
+            setEditorMessage(R.string.no_compatible_nfc_interface, true);
             return;
         }
         if (!adapter.isEnabled()) {
@@ -2064,10 +2096,12 @@ public final class MainActivity extends Activity {
 
     private void showNfcSupportDialog(int titleResource) {
         if (isFinishing() || isDestroyed()) return;
+        String guidance = OnePlusRecoveryGuidance.rawModeHint(this);
+        String support = getString(R.string.nfc_failure_support_message,
+                getString(R.string.diagnostics_email_address));
         new AppDialogs.Builder(this)
                 .setTitle(titleResource)
-                .setMessage(getString(R.string.nfc_failure_support_message,
-                        getString(R.string.diagnostics_email_address)))
+                .setMessage(guidance == null ? support : guidance + "\n\n" + support)
                 .setNegativeButton(R.string.action_close, null)
                 .setPositiveButton(R.string.menu_nfc_diagnostics,
                         (dialog, which) -> showNfcDiagnostics())
@@ -2291,53 +2325,8 @@ public final class MainActivity extends Activity {
         pendingNfcProgressStatus = null;
     }
 
-    private GradientDrawable cardBackground(int index, boolean active) {
-        float hue = (CARD_START_HUE + index * GOLDEN_ANGLE_DEGREES) % 360f;
-        int leading = cardColorForWhiteText(hue, 0.72f, 0.76f);
-        int trailing = cardColorForWhiteText((hue + 18f) % 360f, 0.82f, 0.54f);
-        if (!active) {
-            leading = blendColors(leading, SURFACE, 0.24f);
-            trailing = blendColors(trailing, SURFACE, 0.28f);
-        }
-        GradientDrawable drawable = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, new int[] {leading, trailing});
-        drawable.setCornerRadius(dp(22));
-        if (active) drawable.setStroke(dp(3), ACTIVE_BORDER);
-        return drawable;
-    }
-
-    private int cardColorForWhiteText(float hue, float saturation, float value) {
-        float adjustedValue = value;
-        int color;
-        do {
-            color = Color.HSVToColor(new float[] {hue, saturation, adjustedValue});
-            adjustedValue -= 0.025f;
-        } while (relativeLuminance(color) > 0.18 && adjustedValue >= 0.34f);
-        return color;
-    }
-
-    private static int blendColors(int foreground, int background,
-            float backgroundAmount) {
-        float foregroundAmount = 1f - backgroundAmount;
-        return Color.rgb(
-                Math.round(Color.red(foreground) * foregroundAmount
-                        + Color.red(background) * backgroundAmount),
-                Math.round(Color.green(foreground) * foregroundAmount
-                        + Color.green(background) * backgroundAmount),
-                Math.round(Color.blue(foreground) * foregroundAmount
-                        + Color.blue(background) * backgroundAmount));
-    }
-
-    private static double relativeLuminance(int color) {
-        return 0.2126 * linearColorChannel(Color.red(color) / 255.0)
-                + 0.7152 * linearColorChannel(Color.green(color) / 255.0)
-                + 0.0722 * linearColorChannel(Color.blue(color) / 255.0);
-    }
-
-    private static double linearColorChannel(double channel) {
-        return channel <= 0.04045
-                ? channel / 12.92
-                : Math.pow((channel + 0.055) / 1.055, 2.4);
+    private GradientDrawable cardBackground(SavedCard card, boolean active) {
+        return CardPalette.background(card.colorHue, active, dp(22), dp(3));
     }
 
     private GradientDrawable rounded(int color, int radiusDp) {

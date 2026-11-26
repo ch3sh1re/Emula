@@ -62,6 +62,12 @@ final class PhoneNfcRuntime {
     }
 
     boolean isBusy() { return running || !queue.isEmpty(); }
+    static synchronized void adapterOn() {
+        PhoneNfcRuntime runtime = instance;
+        if (runtime != null && runtime.pollingUi.isResumed() && runtime.session.needsForegroundBootCheck()) {
+            runtime.checkForegroundBootRecord(null);
+        }
+    }
     static synchronized void adapterOff(boolean ownedRestart) {
         if (instance == null) return;
         PhoneNfcRuntime runtime = instance;
@@ -91,10 +97,27 @@ final class PhoneNfcRuntime {
 
     String pollingCapabilities(boolean rawApi) {
         android.app.Activity activity = pollingUi.attached();
+        String recovery = "";
+        android.content.SharedPreferences legacy = context.getSharedPreferences("legacy_nfc", Context.MODE_PRIVATE);
+        boolean uidOnly = PhoneNfcBackend.useOnePlus12UidSnapshot(legacy);
+        OnePlusLegacyRecovery profile = OnePlusLegacyRecovery.forDevice(android.os.Build.MODEL, android.os.Build.FINGERPRINT);
+        if (profile != null) {
+            int firstBoot = legacy.getInt(profile.checkpointKey, -1);
+            int boot;
+            try {
+                boot = android.provider.Settings.Global.getInt(context.getContentResolver(),
+                        android.provider.Settings.Global.BOOT_COUNT, -1);
+            } catch (SecurityException unavailable) { boot = -1; }
+            recovery = "\n" + profile.displayName + " flag-only recovery eligible: " + session.needsForegroundBootCheck()
+                    + "\n" + profile.displayName + " recovery checkpoint: " + OnePlusLegacyRecovery.bootState(firstBoot, boot)
+                    + "\n" + profile.displayName + " old recovery record archived after reboot: "
+                    + (profile.fingerprint.equals(legacy.getString(profile.archiveKey, null))
+                    ? "yes" : "no");
+        }
         return "Polling method (foreground): " + (!rawApi || activity == null ? "UNAVAILABLE"
-                : LegacyNfcController.pollingMethod(activity))
-                + "\nPolling method (background): " + (!rawApi ? "UNAVAILABLE"
-                : LegacyNfcController.pollingMethod(context));
+                : uidOnly ? "DISCOVERY_TECHNOLOGY" : LegacyNfcController.pollingMethod(activity))
+                + "\nPolling method (background): " + (!rawApi || uidOnly ? "UNAVAILABLE"
+                : LegacyNfcController.pollingMethod(context)) + recovery;
     }
 
     PhoneNfcSession.Reason quickProblem(String id) {
@@ -111,6 +134,15 @@ final class PhoneNfcRuntime {
 
     <T> void submit(boolean hardware, Work<T> work, Completion<T> completion) {
         enqueue(new Job<>(hardware, false, work, completion));
+    }
+
+    void checkForegroundBootRecord(Completion<Void> completion) {
+        // This job can only read the controller and reconcile Emula's own old flag.
+        // It does not need to wake the background service to perform that check.
+        enqueue(new Job<>(true, false, true, state -> {
+            if (pollingUi.isResumed()) state.checkForegroundBootRecord();
+            return null;
+        }, completion));
     }
 
     void toggle(String id, Completion<Void> completion) {
@@ -229,6 +261,8 @@ final class PhoneNfcRuntime {
     }
 
     static String message(Context context, Throwable error) {
+        String guidance = OnePlusRecoveryGuidance.failureHint(context, error);
+        if (guidance != null) return guidance;
         if (error instanceof PhoneNfcSession.Failure) {
             PhoneNfcSession.Failure failure = (PhoneNfcSession.Failure) error;
             int resource;

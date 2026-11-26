@@ -4,11 +4,14 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Parcel;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.ContextThemeWrapper;
@@ -61,6 +64,7 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
         });
         runTest("csvShareAndOpenIntentsResolve",
                 () -> CardTransferChecks.intentFilters(getTargetContext()));
+        runTest("diagnosticEmailPreservesCompleteReport", this::diagnosticEmailPreservesCompleteReport);
         runTest("csvCancellationClosesAndroidPipeAndReleasesWorker", () -> {
             try {
                 CardTransferChecks.cancelPipeRead();
@@ -91,10 +95,60 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
                 () -> XiaomiNxpConfigChecks.recoveryStorage(getTargetContext()));
         runTest("xiaomiTanzaniteSnapshotAndRecoveryOnAndroid",
                 () -> XiaomiNxpConfigChecks.tanzaniteSnapshot(getTargetContext()));
+        runTest("onePlusRawRecoveryArchiveAndFailedCommits",
+                () -> OnePlusRawRecoveryChecks.storage(getTargetContext()));
+        runTest("oppoNxpRfRecoveryAndFailedCommits",
+                () -> OppoNxpRawChecks.storage(getTargetContext()));
         Bundle result = new Bundle();
         result.putString("stream", "\nUID editor, CSV, quick access, background control and Xiaomi parser: "
                 + (current - failures) + "/" + current + " passed without NFC hardware calls.\n");
         finish(failures == 0 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    private void diagnosticEmailPreservesCompleteReport() {
+        Context context = getTargetContext();
+        String report = "RAW_CONFIG_REJECTED — reported parameters=[133, 48]\n"
+                + "0x30 LA_BIT_FRAME_SDD = 04\n".repeat(350)
+                + "Notes: A&B + 100% %2F\nROLLBACK\nORIGINAL_CONFIG_ALREADY_PRESENT";
+        Intent draft = DiagnosticsEmail.draft(context, report);
+        Parcel parcel = Parcel.obtain();
+        try {
+            draft.writeToParcel(parcel, 0);
+            parcel.setDataPosition(0);
+            Intent received = Intent.CREATOR.createFromParcel(parcel);
+            if (Intent.ACTION_CHOOSER.equals(received.getAction())) {
+                checkEmailTarget(context, received.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class), report);
+                Intent[] others = received.getParcelableArrayExtra(Intent.EXTRA_ALTERNATE_INTENTS, Intent.class);
+                check(others != null && others.length > 0, "Missing alternative email targets");
+                for (Intent target : others) checkEmailTarget(context, target, report);
+            } else {
+                checkEmailTarget(context, received, report);
+            }
+        } finally {
+            parcel.recycle();
+        }
+    }
+
+    private void checkEmailTarget(Context context, Intent target, String report) {
+        String address = context.getString(R.string.diagnostics_email_address);
+        check(target != null, "Missing email draft");
+        if (Intent.ACTION_SEND.equals(target.getAction())) {
+            check("text/plain".equals(target.getType()) && target.getPackage() != null,
+                    "Shared text must target an email app");
+            check(Arrays.equals(new String[]{address}, target.getStringArrayExtra(Intent.EXTRA_EMAIL)),
+                    "Missing email recipient");
+            Intent mail = new Intent(Intent.ACTION_SENDTO, android.net.Uri.fromParts("mailto", address, null))
+                    .setPackage(target.getPackage());
+            check(mail.resolveActivity(context.getPackageManager()) != null
+                    && target.resolveActivity(context.getPackageManager()) != null, "Unresolvable email draft");
+        } else {
+            check(Intent.ACTION_SENDTO.equals(target.getAction()) && "mailto".equals(target.getScheme())
+                    && address.equals(target.getData().getSchemeSpecificPart()), "Unexpected email URI");
+        }
+        check(context.getString(R.string.diagnostics_email_subject, Build.MANUFACTURER,
+                Build.MODEL).equals(target.getStringExtra(Intent.EXTRA_SUBJECT)), "Draft subject changed");
+        check(context.getString(R.string.diagnostics_email_body, report)
+                .equals(target.getStringExtra(Intent.EXTRA_TEXT)), "Incomplete email body");
     }
 
     private void runTest(String name, Runnable test) {
@@ -107,7 +161,7 @@ public final class UidEditorTestInstrumentation extends Instrumentation {
         status.putString("id", "InstrumentationTestRunner");
         status.putString("class", getClass().getName());
         status.putString("test", name);
-        status.putInt("numtests", xiaomiOnly ? 4 : 20);
+        status.putInt("numtests", xiaomiOnly ? 4 : 23);
         status.putInt("current", ++current);
         sendStatus(1, status);
         AtomicReference<Throwable> failure = new AtomicReference<>();

@@ -18,6 +18,10 @@ final class NfcFirmwareProfiles {
         } else if ("e9c72611e850a8f323a7f47252b6360c91370573ed509b9476c80f95013a8b20".equals(sha256)) {
             source = "OPPO CPH2865 EEA 16.0.10.501(EX01) / NfcNci";
             finding = oplusGates();
+        } else if ("2c2d091f1c1fe26f5a52764caf110f28990cafe72c02adf4bd5a547701562830".equals(sha256)) {
+            source = "HONOR NLA-L31 9.0.0.290(C430E6R2P2) / NfcNci_45_oversea";
+            finding = "The service can time out after 3000 ms while callback delivery waits for its lock. "
+                    + "A response delivered after framework FAILED remains diagnostic evidence only.";
         } else if ("0c92a11302dfe4e25c4472b156c823c2ddc67f724279cded22b07dd102ad6af9".equals(sha256)) {
             source = "OnePlus 11 CPH2447 India 16.0.5.1301(EX01) / NfcNci";
             finding = "The service forwards raw configuration requests to the device host. "

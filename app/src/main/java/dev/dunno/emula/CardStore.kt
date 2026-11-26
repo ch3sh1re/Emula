@@ -30,6 +30,8 @@ internal object CardStore {
                                 context.getString(R.string.default_card_name),
                             ),
                             uid = uid,
+                            colorHue = item.optDouble("colorHue").toFloat()
+                                .takeIf(CardPalette::valid) ?: CardPalette.defaultHue(size),
                         ),
                     )
                 }
@@ -47,12 +49,16 @@ internal object CardStore {
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: context.getString(R.string.default_card_name)
+        val cards = getCards(context)
+        val hue = cards.firstOrNull { it.id == existing?.id }?.colorHue
+            ?: unusedHue(cards.size, cards.mapNotNullTo(mutableSetOf()) { it.colorHue })
         val saved = SavedCard(
             id = existing?.id ?: UUID.randomUUID().toString(),
             name = normalizedName,
             uid = uid,
+            colorHue = hue,
         )
-        writeCards(context, CardCatalog.upsert(getCards(context), saved))
+        writeCards(context, CardCatalog.upsert(cards, saved))
         return saved
     }
 
@@ -78,14 +84,33 @@ internal object CardStore {
         return merge.result
     }
 
+    @JvmStatic
+    @Synchronized
+    fun applyReceivedColors(context: Context, incoming: List<WatchCardPacket.Entry>, hues: FloatArray) {
+        val colors = mutableMapOf<String, Float>()
+        incoming.forEachIndexed { index, entry -> colors.putIfAbsent(Hex.bytes(entry.uid), hues[index]) }
+        val cards = getCards(context)
+        val updated = cards.map { card ->
+            val hue = colors[Hex.bytes(card.uid)]
+            if (hue == null || hue == card.colorHue) card else SavedCard(card.id, card.name, card.uid, hue)
+        }
+        if (updated != cards) writeCards(context, updated)
+    }
+
+    private fun unusedHue(index: Int, used: Set<Float>): Float =
+        generateSequence(index) { it + 1 }.map(CardPalette::defaultHue).first { it !in used }
+
     private fun writeCards(context: Context, cards: List<SavedCard>) {
         try {
             val array = JSONArray()
-            cards.forEach { card ->
+            val used = cards.mapNotNullTo(mutableSetOf()) { it.colorHue }
+            cards.forEachIndexed { index, card ->
+                val hue = card.colorHue ?: unusedHue(index, used).also { used.add(it) }
                 array.put(
                     JSONObject()
                         .put("id", card.id)
                         .put("name", card.name)
+                        .put("colorHue", hue.toDouble())
                         .put("uid", Base64.encodeToString(card.uid, Base64.NO_WRAP)),
                 )
             }

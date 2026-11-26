@@ -1,6 +1,7 @@
 package dev.dunno.emula;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.os.Build;
 
@@ -15,6 +16,9 @@ final class OemNfcController {
     };
     private static final EmulationProfile PIXEL_PROFILE = new EmulationProfile(
             "pixel-minimal", (byte) 0x04, (byte) 0x00, (byte) 0x00, (byte) 0x00);
+    private static final EmulationProfile PIXEL_WATCH_PROFILE = new EmulationProfile(
+            "pixel-watch-iso-dep", PIXEL_PROFILE.bitFrameSdd, PIXEL_PROFILE.platformConfig,
+            (byte) 0x20, PIXEL_PROFILE.rats);
     private static final EmulationProfile CTS_TYPE_4A_PROFILE = new EmulationProfile(
             "cts-type-4a", (byte) 0x06, (byte) 0x0C, (byte) 0x20, (byte) 0x40);
 
@@ -141,6 +145,7 @@ final class OemNfcController {
                 throw new HonorFallbackException(st.failure);
             }
 
+            boolean onePlusAccessDenied = false;
             if (OnePlusVendorNfcController.isTargetDevice()) {
                 try {
                     report.stage = "RESOLVE_ONEPLUS_VENDOR_HCE";
@@ -161,21 +166,32 @@ final class OemNfcController {
                     }
                     report.notes.add("OnePlus vendor HCE unavailable; trying Android OEM API: "
                             + describe(unavailable));
-                } catch (Exception denied) {
-                    if (!OnePlusVendorNfcController.isPermissionDenied(denied)
-                            || OnePlusVendorNfcController.hasPendingRestore(context)) throw denied;
-                    report.vendorResolutionFailure = describe(denied);
-                    report.notes.add("OnePlus service denied access before configuration changed. Trying the Android OEM API.");
+                    onePlusAccessDenied = OnePlusVendorNfcController.isPermissionBlocked(context);
+                } catch (Exception failure) {
+                    if (!OnePlusVendorNfcController.isPermissionDenied(failure)
+                            || OnePlusVendorNfcController.hasPendingRestore(context)) throw failure;
+                    onePlusAccessDenied = true;
+                    report.vendorResolutionFailure = describe(failure);
+                    report.notes.add("OnePlus vendor access denied before changes; trying Android OEM API: "
+                            + describe(failure));
                 }
             }
 
             report.stage = "RESOLVE_ANDROID_OEM_EXTENSION";
             report.path = OemOperationReport.Path.ANDROID_OEM_EXTENSION;
-            EmulationApi api = resolveAndroidApi(context);
-            EmulationProfile profile = resolveProfile();
+            EmulationApi api;
+            try {
+                api = resolveAndroidApi(context);
+            } catch (Exception unavailable) {
+                if (onePlusAccessDenied) throw new OnePlusFallbackException(describe(unavailable));
+                throw unavailable;
+            }
+            EmulationProfile profile = resolveProfile(Build.MANUFACTURER,
+                    context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WATCH));
             report.profile = profile.name;
             report.atqa = new byte[] {profile.bitFrameSdd, profile.platformConfig};
             report.sak = new byte[] {profile.selInfo};
+            report.rats = new byte[] {profile.rats};
             report.uid = Arrays.copyOf(uid, uid.length);
             AppLog.info("NFC-A profile=" + profile.name
                     + ", enabled=" + enable
@@ -195,6 +211,7 @@ final class OemNfcController {
                 throw new IllegalStateException("Unexpected NFC response: " + result);
             }
             int status = (Integer) result;
+            report.androidStatus = status;
             if (status == 1) {
                 throw new IllegalStateException("NFC is disabled");
             }
@@ -226,14 +243,17 @@ final class OemNfcController {
         }
     }
 
-    private static EmulationProfile resolveProfile() {
-        // CTS is Android's reference configuration and the fallback for untested OEMs.
-        // Google's NFC stack is the verified exception: with CTS values the tested Pixel
-        // sees an RF field but never reaches card activation.
-        if ("google".equalsIgnoreCase(Build.MANUFACTURER)) {
-            return PIXEL_PROFILE;
+    static final class OnePlusFallbackException extends Exception {
+        OnePlusFallbackException(String failure) {
+            super("OnePlus vendor permission denied and Android OEM API unavailable: " + failure);
         }
-        return CTS_TYPE_4A_PROFILE;
+    }
+
+    static EmulationProfile resolveProfile(String manufacturer, boolean watch) {
+        if (!"google".equalsIgnoreCase(manufacturer)) {
+            return CTS_TYPE_4A_PROFILE;
+        }
+        return watch ? PIXEL_WATCH_PROFILE : PIXEL_PROFILE;
     }
 
     private static EmulationApi resolveAndroidApi(Context context) throws Exception {
@@ -341,6 +361,11 @@ final class OemNfcController {
 
         String preferredPath() {
             if (pendingHonorStRestore) return "HONOR_ST_RESTORE_REQUIRED";
+            if (pendingOnePlusRestore) return "ONEPLUS_VENDOR_RESTORE_REQUIRED";
+            if (pendingMotorolaStRestore) return "MOTOROLA_ST_RESTORE_REQUIRED";
+            if (NfcActivationPolicy.requiresRawTrial(Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT)) {
+                return "EXPERIMENTAL_RAW_TRIAL (OEM UID mismatch reported; consent required)";
+            }
             if (motorolaSt.available) return "MOTOROLA_ST_VENDOR_HCE";
             if (onePlusVendor.isAvailable()) return "ONEPLUS_VENDOR_HCE";
             if (androidOemExtension) return "ANDROID_OEM_EXTENSION";
@@ -420,7 +445,7 @@ final class OemNfcController {
         }
     }
 
-    private static final class EmulationProfile {
+    static final class EmulationProfile {
         final String name;
         final byte bitFrameSdd;
         final byte platformConfig;

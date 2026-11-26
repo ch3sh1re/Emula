@@ -26,7 +26,8 @@ final class BackgroundNfcChecks {
     private static final class Backend implements PhoneNfcSession.Backend {
         final List<SavedCard> cards;
         volatile String active, last;
-        volatile boolean pending, fail;
+        volatile boolean pending, fail, flagOnly;
+        volatile int bootChecks;
         volatile int restores, writes;
         volatile CountDownLatch changeEntered, allowChange;
         Backend(List<SavedCard> cards) { this.cards = cards; }
@@ -34,6 +35,8 @@ final class BackgroundNfcChecks {
         public String activeId() { return active; }
         public String lastCardId() { return last; }
         public boolean recoveryPending() { return pending; }
+        public boolean flagOnlyBootCheckPending() { return flagOnly; }
+        public void checkFlagOnlyBootRecord() { bootChecks++; flagOnly = false; }
         public PhoneNfcSession.Reason preflight(SavedCard card) { return null; }
         public void remember(SavedCard card) { last = card.id; }
         public void forgetActive() { active = null; CardSession.clearActiveCard(); }
@@ -83,6 +86,20 @@ final class BackgroundNfcChecks {
                 app.registerActivityLifecycleCallbacks(callbacks);
             });
             PhoneNfcRuntime runtime = installed.get();
+            Activity foreground = new Activity();
+            test.runOnMainSync(() -> {
+                backend.flagOnly = true;
+                PhoneNfcRuntime.adapterOn();
+                check(!runtime.isBusy(), "NFC ready in background must not start recovery");
+                runtime.pollingUi.attach(foreground);
+                runtime.resumeUi(foreground);
+                PhoneNfcRuntime.adapterOn();
+                PhoneNfcRuntime.adapterOn();
+            });
+            await(test, () -> !runtime.isBusy(), "Foreground NFC ready check");
+            check(backend.bootChecks == 1 && backend.restores == 0 && backend.writes == 0,
+                    "NFC ready must reconcile only the eligible record, once");
+            test.runOnMainSync(() -> runtime.pollingUi.detach(foreground));
             context.startActivity(QuickAccess.launcherIntent(context, first.id));
             await(test, () -> first.id.equals(backend.active) && !runtime.isBusy(), "Router activation");
             check(routerOpened.get() == 1 && mainOpened.get() == 0, "Activation must not open MainActivity");
@@ -160,14 +177,17 @@ final class BackgroundNfcChecks {
                 context.startForegroundService(BackgroundNfcService.command(context, first.id, false));
             }
             check(backend.changeEntered.await(5, TimeUnit.SECONDS), "Burst must reach the controller");
-            check(notification(context, 201) != null, "Queued burst must stay foreground");
+            // The controller can enter before NotificationManager publishes the FGS notification.
+            await(test, () -> notification(context, 201) != null, "Queued burst foreground notification");
             backend.allowChange.countDown();
             await(test, () -> backend.writes == beforeBurst + 8 && !runtime.isBusy()
                     && !runtime.serviceRunning(), "Eight background toggles and idle shutdown");
             backend.changeEntered = null;
             check(backend.active == null && backend.restores == 1,
                     "An even burst must restore NFC without reinitializing the session");
-            check(notification(context, 201) == null, "Final inactive state must remove foreground feedback");
+            // NotificationManager removes the notification asynchronously after service shutdown.
+            await(test, () -> notification(context, 201) == null,
+                    "Final inactive state must remove foreground feedback");
             check(mainOpened.get() == 1, "Background burst must not open MainActivity");
 
             int beforeBusy = backend.writes;
@@ -209,6 +229,10 @@ final class BackgroundNfcChecks {
         } finally {
             PhoneNfcRuntime runtime = installed.get();
             if (runtime != null) {
+                // Release the fake controller even if a preceding assertion failed, so cleanup
+                // cannot hide that failure behind another queued-work timeout.
+                if (backend.allowChange != null) backend.allowChange.countDown();
+                backend.changeEntered = null;
                 backend.fail = false;
                 job(test, runtime, true, state -> { state.change(null, false); return null; }, false);
                 await(test, () -> !runtime.serviceRunning(), "Cleanup service shutdown");

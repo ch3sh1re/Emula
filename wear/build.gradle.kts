@@ -23,15 +23,18 @@ val syncWatchSources by tasks.registering(Sync::class) {
             "dev/dunno/emula/MotorolaStNfcController.java",
             "dev/dunno/emula/HonorStNfcController.java",
             "dev/dunno/emula/LegacyNfcController.java",
+            "dev/dunno/emula/OnePlusLegacyRecovery.java",
             "dev/dunno/emula/LegacyNfcDiagnostics.java",
             "dev/dunno/emula/RawNciCodec.java",
             "dev/dunno/emula/RawNfcDeviceCatalog.java",
+            "dev/dunno/emula/NfcActivationPolicy.java",
             "dev/dunno/emula/RawOperationReport.java",
             "dev/dunno/emula/UidCodec.kt",
             "dev/dunno/emula/AppLog.kt",
             "dev/dunno/emula/Hex.kt",
             "dev/dunno/emula/SavedCard.kt",
             "dev/dunno/emula/CardCatalog.kt",
+            "dev/dunno/emula/CardPalette.java",
             "dev/dunno/emula/CardStore.kt",
             "dev/dunno/emula/WatchCardPacket.java",
             "dev/dunno/emula/LocalWatchLink.java",
@@ -48,6 +51,7 @@ val syncWatchLauncherResources by tasks.registering(Sync::class) {
         include(
             "drawable/ic_launcher_foreground.xml",
             "drawable/ic_launcher_monochrome.xml",
+            "drawable/ic_add_24.xml",
             "values/colors.xml",
         )
     }
@@ -66,8 +70,8 @@ android {
         applicationId = "dev.dunno.emula"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10005
-        versionName = "1.0.4-wear"
+        versionCode = 10007
+        versionName = "1.0.6-wear"
         testInstrumentationRunner = "dev.dunno.emula.WatchFlowInstrumentation"
         buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "false")
         buildConfigField("boolean", "MOTOROLA_ST_RAW_COMPATIBILITY", "false")

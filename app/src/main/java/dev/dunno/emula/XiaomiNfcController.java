@@ -71,13 +71,18 @@ final class XiaomiNfcController {
         return preferences(context).getBoolean("pending", false);
     }
 
+    static String capabilities(Context context) {
+        boolean targeted = isTargetDevice();
+        boolean pending = hasPendingRestore(context);
+        if (!targeted && !pending) return "Xiaomi NXP trial: not targeted";
+        return "Xiaomi NXP trial: " + (targeted ? "targeted (experimental)" : "firmware changed")
+                + "\nXiaomi reset pending: " + (pending ? "yes" : "no");
+    }
+
     /** No setters. Read chip identity and firmware through the actual vendor services. */
-    static String capabilities(Context context, boolean includeProbe) {
-        if (!isTargetDevice() && !hasPendingRestore(context)) return "Xiaomi NXP trial: not targeted";
-        StringBuilder text = new StringBuilder("Xiaomi NXP trial: ")
-                .append(isTargetDevice() ? "targeted (experimental)" : "firmware changed")
-                .append("\nXiaomi reset pending: ").append(hasPendingRestore(context) ? "yes" : "no");
-        if (!includeProbe) return text.toString();
+    static String diagnosticProbe(Context context) {
+        if (!isTargetDevice() && !hasPendingRestore(context)) return "";
+        StringBuilder text = new StringBuilder("XIAOMI NXP PROBE");
         try {
             Api api = resolveApi(context);
             text.append("\nXiaomi chip ID: ").append(api.chipId)
@@ -158,7 +163,6 @@ final class XiaomiNfcController {
         report.notes.add(api.usesLiveSnapshot()
                 ? "Seven standard NCI parameters are snapshotted; the proprietary transit file is not backed up."
                 : "Factory reset replaces prior transit overrides; no original-file snapshot is available.");
-        report.notes.add("A vendor acknowledgement does not verify RF UID, file deletion, payment, or transit cards.");
         Recovery pending = store.load();
         if (pending != null && !fingerprint.equals(pending.fingerprint)) {
             throw new IllegalStateException("Xiaomi reset belongs to a different firmware; recovery marker retained");

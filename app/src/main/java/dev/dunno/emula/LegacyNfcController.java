@@ -61,6 +61,18 @@ final class LegacyNfcController {
         return lastOperationReport;
     }
 
+    static void recordOperation(RawOperationReport report) {
+        lastOperationReport = report;
+    }
+
+    /** A scoped backend rejected preparation before entering any raw writer. */
+    static void recordPreparationFailure(RawOperationReport report, Exception failure) {
+        report.result = "PREPARATION_FAILED";
+        report.primaryFailure = describeFailure(failure);
+        report.notes.add("Raw preparation stopped before the writer; no raw SET was sent.");
+        lastOperationReport = report;
+    }
+
     static void recordAlreadyRestored(RawOperationReport.Operation operation,
             LegacyNfcDiagnostics.ProbeResult probe) {
         RawOperationReport report = new RawOperationReport(operation);
@@ -119,6 +131,19 @@ final class LegacyNfcController {
     static ActivationResult setCardEnabled(Context context, byte[] uid, boolean enable,
             RawOperationReport.Operation operation, boolean allowUnverified,
             Map<Integer, byte[]> originalConfiguration) throws Exception {
+        return setCardEnabled(context, uid, enable, operation, allowUnverified,
+                originalConfiguration, false);
+    }
+
+    /** Explicit OnePlus recovery trial: UID-only, persisted baseline, no legacy fallback. */
+    static ActivationResult setUidSnapshotEnabled(Context context, byte[] uid, boolean enable,
+            RawOperationReport.Operation operation, Map<Integer, byte[]> original) throws Exception {
+        return setCardEnabled(context, uid, enable, operation, false, original, true);
+    }
+
+    static ActivationResult setCardEnabled(Context context, byte[] uid, boolean enable,
+            RawOperationReport.Operation operation, boolean allowUnverified,
+            Map<Integer, byte[]> originalConfiguration, boolean uidSnapshot) throws Exception {
         RawOperationReport report = new RawOperationReport(operation);
         lastOperationReport = report;
         try {
@@ -138,14 +163,26 @@ final class LegacyNfcController {
                 throw new IllegalStateException(
                         "Original NFC configuration snapshot is incomplete");
             }
+            boolean onePlus12Uid = uidSnapshot && OnePlusLegacyRecovery.supportsUidSnapshot(
+                    Build.VERSION.SDK_INT, Build.FINGERPRINT);
+            if (uidSnapshot) report.candidate = RawOperationReport.Candidate.UID_ONLY;
+            if (uidSnapshot && ((!onePlus12Uid && !RawNfcDeviceCatalog.prefersUidOnly(Build.MANUFACTURER, Build.MODEL))
+                    || !isCompleteExperimentalSnapshot(originalConfiguration)
+                    || originalConfiguration.get(0x59) == null || !(context instanceof Activity))) {
+                throw new IllegalStateException("UID snapshot trial requires a foreground OnePlus and full baseline");
+            }
+            if (onePlus12Uid) {
+                report.stage = "CHECK_ONEPLUS_HCE_MODE";
+                OnePlusVendorNfcController.requireIdleAccessCard(context);
+            }
             if (allowUnverified) {
                 report.notes.add("Unverified device opt-in for "
                         + Build.MANUFACTURER + " " + Build.MODEL);
             }
 
-            EmulationProfile profile = resolveProfile(allowUnverified);
-            PollingControl pollingControl = PollingControl.resolve(
-                    context, adapter, allowUnverified);
+            PollingControl pollingControl = uidSnapshot
+                    ? new DiscoveryTechnologyPollingControl(adapter, (Activity) context)
+                    : PollingControl.resolve(context, adapter, allowUnverified);
             report.pollingMethod = pollingControl == null ? "UNAVAILABLE" : pollingControl.method;
             if (pollingControl == null && RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(
                     Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL)) {
@@ -155,18 +192,35 @@ final class LegacyNfcController {
 
             try (RawNciSession session = RawNciSession.open(adapter)) {
                 ActivationResult result;
-                if (!enable) {
+                if (uidSnapshot) {
+                    report.candidate = RawOperationReport.Candidate.UID_ONLY;
+                    report.notes.add("Firmware-scoped raw recovery trial; only LA_NFCID1 may be written.");
+                    if (enable) {
+                        uidOnlyBaseline = copy(originalConfiguration.get(0x33));
+                        result = activateUidOnly(context, session, pollingControl, uid, report, !onePlus12Uid);
+                    } else {
+                        restoreUidSnapshot(session, pollingControl, report, originalConfiguration,
+                                () -> Thread.sleep(ROUTING_SETTLE_MILLIS), onePlus12Uid);
+                        activeCandidate = null;
+                        uidOnlyBaseline = null;
+                        result = new ActivationResult(false,
+                                context.getString(R.string.legacy_standard_nfc_restored));
+                    }
+                } else if (!enable) {
                     result = restoreConfiguration(
                             context, session, pollingControl, operation, report,
                             allowUnverified, originalConfiguration);
-                } else if (RawNfcDeviceCatalog.prefersUidOnly(
-                        Build.MANUFACTURER, Build.MODEL)) {
-                    result = activateUidOnlyThenLegacy(
-                            context, session, pollingControl, uid, profile, report);
                 } else {
-                    report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
-                    result = activateLegacy(
-                            context, session, pollingControl, uid, profile, report);
+                    RawNfcDeviceCatalog.Profile catalog = allowUnverified
+                            ? RawNfcDeviceCatalog.profileForExperimental(Build.MANUFACTURER, Build.MODEL)
+                            : RawNfcDeviceCatalog.profileFor(Build.MANUFACTURER, Build.MODEL);
+                    EmulationProfile profile = resolveProfile(catalog, Build.FINGERPRINT, originalConfiguration);
+                    if (RawNfcDeviceCatalog.prefersUidOnly(Build.MANUFACTURER, Build.MODEL)) {
+                        result = activateUidOnlyThenLegacy(
+                                context, session, pollingControl, uid, profile, report);
+                    } else {
+                        result = activateLegacy(context, session, pollingControl, uid, profile, report);
+                    }
                 }
                 report.stage = "COMPLETE";
                 return result;
@@ -186,7 +240,7 @@ final class LegacyNfcController {
             EmulationProfile profile, RawOperationReport report) throws Exception {
         report.candidate = RawOperationReport.Candidate.UID_ONLY;
         try {
-            return activateUidOnly(context, session, pollingControl, uid, report);
+            return activateUidOnly(context, session, pollingControl, uid, report, true);
         } catch (Throwable uidOnlyFailure) {
             if (uidOnlyFailure instanceof InterruptedException) Thread.currentThread().interrupt();
             if (report.result == null) report.result = classifyUidOnlyFailure(report);
@@ -212,7 +266,14 @@ final class LegacyNfcController {
     }
 
     private static ActivationResult activateUidOnly(Context context, RawNciSession session,
-            PollingControl pollingControl, byte[] uid, RawOperationReport report) throws Exception {
+            PollingControl pollingControl, byte[] uid, RawOperationReport report,
+            boolean allowLiveReapply) throws Exception {
+        applyUidOnly(session, pollingControl, uid, report, allowLiveReapply);
+        return new ActivationResult(true, context.getString(R.string.legacy_uid_verified));
+    }
+
+    static void applyUidOnly(ConfigurationIo session, PollingControl pollingControl, byte[] uid,
+            RawOperationReport report, boolean allowLiveReapply) throws Exception {
         report.stage = "UID_BEFORE";
         byte[] currentUid = session.readNfcid1(
                 report, report.operation,
@@ -244,6 +305,7 @@ final class LegacyNfcController {
 
         if (!Arrays.equals(uid, report.uidAfterResume)) {
             report.result = "UID_OVERWRITTEN_AFTER_RESUME";
+            if (!allowLiveReapply) throw new IllegalStateException("The UID changed when NFC discovery resumed");
             report.stage = "POST_RESUME_REAPPLY";
             session.setConfig(RawNciCodec.uidOnlyPayload(uid), report,
                     RawOperationReport.Operation.POST_RESUME_REAPPLY,
@@ -261,7 +323,6 @@ final class LegacyNfcController {
             report.result = "UID_ONLY_VERIFIED";
         }
         activeCandidate = RawOperationReport.Candidate.UID_ONLY;
-        return new ActivationResult(true, context.getString(R.string.legacy_uid_verified));
     }
 
     private static ActivationResult activateLegacy(Context context, RawNciSession session,
@@ -270,7 +331,7 @@ final class LegacyNfcController {
         report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
         boolean paused = executeWithPollingPaused(pollingControl, report, () -> {
             report.stage = "SET_CONFIG";
-            session.setConfig(enabledConfig(uid, profile), report,
+            session.setConfig(profile.enabledConfig(uid), report,
                     report.operation,
                     RawOperationReport.Candidate.LEGACY_PROFILE, "SET_WHILE_PAUSED");
             activeCandidate = RawOperationReport.Candidate.LEGACY_PROFILE;
@@ -285,7 +346,7 @@ final class LegacyNfcController {
             // Preserve the existing single live re-apply, but keep its failure in diagnostics.
             try {
                 report.stage = "POST_RESUME_REAPPLY";
-                session.setConfig(enabledConfig(uid, profile), report,
+                session.setConfig(profile.enabledConfig(uid), report,
                         RawOperationReport.Operation.POST_RESUME_REAPPLY,
                         RawOperationReport.Candidate.LEGACY_PROFILE,
                         "POST_RESUME_REAPPLY");
@@ -323,32 +384,15 @@ final class LegacyNfcController {
             PollingControl pollingControl, RawOperationReport.Operation operation,
             RawOperationReport report, boolean allowUnverified,
             Map<Integer, byte[]> originalConfiguration) throws Exception {
-        if (allowUnverified) {
-            report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
-            boolean paused = executeWithPollingPaused(pollingControl, report, () -> {
-                report.stage = "RESTORE_ORIGINAL_CONFIG";
-                session.setConfig(RawNciCodec.configPayload(
-                                originalConfiguration, EXPERIMENTAL_SNAPSHOT_PARAMETERS),
-                        report, operation, RawOperationReport.Candidate.LEGACY_PROFILE,
-                        "RESTORE_ORIGINAL_CONFIG");
-            });
-            if (paused) Thread.sleep(ROUTING_SETTLE_MILLIS);
-
-            report.stage = "VERIFY_ORIGINAL_CONFIG";
-            Map<Integer, byte[]> restored = session.readConfiguration(
-                    EXPERIMENTAL_SNAPSHOT_PARAMETERS, report, operation,
-                    RawOperationReport.Candidate.LEGACY_PROFILE,
-                    "VERIFY_ORIGINAL_CONFIG");
-            if (!configurationEquals(originalConfiguration, restored)) {
-                report.result = "ORIGINAL_CONFIG_RESTORE_MISMATCH";
-                throw new IllegalStateException(
-                        "Original NFC configuration was not restored exactly");
-            }
-            report.result = "ORIGINAL_CONFIG_RESTORED";
+        if (allowUnverified || originalConfiguration != null) {
+            restoreExperimentalConfiguration(session, pollingControl, report, operation,
+                    originalConfiguration, () -> Thread.sleep(ROUTING_SETTLE_MILLIS));
             activeCandidate = null;
             uidOnlyBaseline = null;
-            return new ActivationResult(false,
-                    context.getString(R.string.legacy_standard_nfc_restored));
+            return new ActivationResult(false, context.getString(
+                    "ORIGINAL_CONFIG_ALREADY_PRESENT".equals(report.result)
+                            ? R.string.legacy_reset_accepted
+                            : R.string.legacy_standard_nfc_restored));
         }
 
         RawOperationReport.Candidate candidate = activeCandidate;
@@ -391,6 +435,10 @@ final class LegacyNfcController {
                         + "sent only LA_NFCID1 with an empty value");
             }
         } else {
+            if (OnePlusLegacyRecovery.forDevice(Build.MODEL, Build.FINGERPRINT) != null
+                    && operation == RawOperationReport.Operation.STARTUP_PENDING_RESTORE) {
+                throw new IllegalStateException("Legacy recovery requires the read-only restart check.");
+            }
             executeWithPollingPaused(pollingControl, report, () -> {
                 report.stage = "RESTORE_DEFAULT_CONFIG";
                 session.setConfig(defaultConfig(), report, operation,
@@ -408,7 +456,108 @@ final class LegacyNfcController {
                         : R.string.legacy_reset_accepted));
     }
 
-    private static boolean executeWithPollingPaused(PollingControl pollingControl,
+    static void restoreExperimentalConfiguration(ConfigurationIo session,
+            PollingControl pollingControl, RawOperationReport report,
+            RawOperationReport.Operation operation, Map<Integer, byte[]> originalConfiguration,
+            CheckedAction settleAfterResume) throws Exception {
+        if (!isCompleteExperimentalSnapshot(originalConfiguration)) {
+            throw new IllegalStateException("Original NFC configuration snapshot is incomplete");
+        }
+        report.candidate = RawOperationReport.Candidate.LEGACY_PROFILE;
+        report.stage = "CHECK_ORIGINAL_CONFIG";
+        Exception checkFailure = null;
+        try {
+            Map<Integer, byte[]> current = session.readConfiguration(
+                    EXPERIMENTAL_SNAPSHOT_PARAMETERS, report, operation,
+                    report.candidate, "CHECK_ORIGINAL_CONFIG");
+            if (configurationEquals(originalConfiguration, current)) {
+                report.result = "ORIGINAL_CONFIG_ALREADY_PRESENT";
+                report.notes.add("Every saved parameter already matches; no restore SET was sent.");
+                return;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        } catch (Exception unavailable) {
+            checkFailure = unavailable;
+            report.notes.add("Optional pre-restore GET failed; restoring the saved configuration: "
+                    + describeFailure(unavailable));
+        }
+
+        try {
+            boolean paused = executeWithPollingPaused(pollingControl, report, () -> {
+                report.stage = "RESTORE_ORIGINAL_CONFIG";
+                session.setConfig(RawNciCodec.configPayload(
+                                originalConfiguration, EXPERIMENTAL_SNAPSHOT_PARAMETERS),
+                        report, operation, report.candidate, "RESTORE_ORIGINAL_CONFIG");
+            });
+            if (paused) settleAfterResume.run();
+        } catch (Exception restoreFailure) {
+            if (checkFailure != null) restoreFailure.addSuppressed(checkFailure);
+            throw restoreFailure;
+        }
+        if (checkFailure != null) {
+            // GET responses carry no request ID. A late pre-restore response could
+            // masquerade as the verification GET, even after callback re-registration.
+            // SET has a different OID, so restore now but retain recovery for a later check.
+            report.result = "ORIGINAL_CONFIG_RESTORE_UNVERIFIED";
+            throw new IllegalStateException(
+                    "Original NFC configuration SET was accepted; retry recovery to verify it",
+                    checkFailure);
+        }
+        report.stage = "VERIFY_ORIGINAL_CONFIG";
+        Map<Integer, byte[]> restored = session.readConfiguration(
+                EXPERIMENTAL_SNAPSHOT_PARAMETERS, report, operation,
+                report.candidate, "VERIFY_ORIGINAL_CONFIG");
+        if (!configurationEquals(originalConfiguration, restored)) {
+            report.result = "ORIGINAL_CONFIG_RESTORE_MISMATCH";
+            throw new IllegalStateException("Original NFC configuration was not restored exactly");
+        }
+        report.result = "ORIGINAL_CONFIG_RESTORED";
+    }
+
+    static void restoreUidSnapshot(ConfigurationIo session, PollingControl pollingControl,
+            RawOperationReport report, Map<Integer, byte[]> original, CheckedAction settle,
+            boolean checkBeforeRestore) throws Exception {
+        int[] ids = {0x30, 0x31, 0x32, 0x33, 0x58, 0x59, 0x85};
+        if (!isCompleteExperimentalSnapshot(original) || original.get(0x59) == null
+                || pollingControl == null) throw new IllegalStateException("Full UID recovery baseline/pause required");
+        report.candidate = RawOperationReport.Candidate.UID_ONLY;
+        if (checkBeforeRestore) {
+            report.stage = "CHECK_ORIGINAL_CONFIG";
+            Map<Integer, byte[]> current = session.readConfiguration(ids, report, report.operation,
+                    report.candidate, report.stage);
+            if (!isCompleteExperimentalSnapshot(current) || current.get(0x59) == null) {
+                throw new IllegalStateException("The current NFC configuration could not be verified");
+            }
+            if (Arrays.equals(original.get(0x33), current.get(0x33))) {
+                if (!configurationEquals(original, current) || !Arrays.equals(original.get(0x59), current.get(0x59))) {
+                    report.result = "UID_SNAPSHOT_RESTORE_MISMATCH";
+                    throw new IllegalStateException("Original UID is present but other NFC settings differ");
+                }
+                report.result = "ORIGINAL_CONFIG_ALREADY_PRESENT";
+                return;
+            }
+        }
+        executeWithPollingPaused(pollingControl, report, () -> {
+            report.stage = "RESTORE_SAVED_NFCID1";
+            session.setConfig(RawNciCodec.nfcid1Payload(original.get(0x33)), report,
+                    report.operation, report.candidate, "RESTORE_SAVED_NFCID1");
+        });
+        settle.run();
+        report.stage = "VERIFY_SAVED_NFC_CONFIG";
+        Map<Integer, byte[]> actual = session.readConfiguration(ids, report, report.operation,
+                report.candidate, "VERIFY_SAVED_NFC_CONFIG");
+        for (int id : ids) {
+            if (!Arrays.equals(original.get(id), actual.get(id))) {
+                report.result = "UID_SNAPSHOT_RESTORE_MISMATCH";
+                throw new IllegalStateException("Saved NFC configuration differs after UID restoration");
+            }
+        }
+        report.result = "UID_SNAPSHOT_RESTORED";
+    }
+
+    static boolean executeWithPollingPaused(PollingControl pollingControl,
             RawOperationReport report, CheckedAction action) throws Exception {
         boolean paused = false;
         Throwable primaryFailure = null;
@@ -424,6 +573,8 @@ final class LegacyNfcController {
                     report.pauseFailure = describeFailure(pauseFailure);
                     throw pauseFailure;
                 }
+                report.stage = "WAIT_FOR_PAUSE";
+                pollingControl.awaitPauseApplied();
             } else {
                 AppLog.warning("Legacy raw UID test: polling pause API is unavailable; trying live");
             }
@@ -451,21 +602,15 @@ final class LegacyNfcController {
         return paused;
     }
 
-    private static byte[] enabledConfig(byte[] uid, EmulationProfile profile) {
-        return RawNciCodec.legacyPayload(uid, profile.bitFrameSdd, profile.platformConfig,
-                profile.selInfo, profile.rats);
-    }
-
-    private static EmulationProfile resolveProfile(boolean allowUnverified) {
-        RawNfcDeviceCatalog.Profile profile = allowUnverified
-                ? RawNfcDeviceCatalog.profileForExperimental(
-                        Build.MANUFACTURER, Build.MODEL)
-                : RawNfcDeviceCatalog.profileFor(Build.MANUFACTURER, Build.MODEL);
+    static EmulationProfile resolveProfile(RawNfcDeviceCatalog.Profile profile, String firmware,
+            Map<Integer, byte[]> original) {
         if (profile == RawNfcDeviceCatalog.Profile.PIXEL) {
             return new EmulationProfile((byte) 0x04, (byte) 0x00,
                     (byte) 0x00, (byte) 0x00);
         }
-        return new EmulationProfile((byte) 0x06, (byte) 0x0C,
+        byte bitFrameSdd = OnePlusLegacyRecovery.isOnePlus12Android16(firmware)
+                ? OnePlusLegacyRecovery.snapshotBitFrameSdd(original) : (byte) 0x06;
+        return new EmulationProfile(bitFrameSdd, (byte) 0x0C,
                 (byte) 0x20, (byte) 0x40);
     }
 
@@ -499,7 +644,7 @@ final class LegacyNfcController {
         }
     }
 
-    private static final class EmulationProfile {
+    static final class EmulationProfile {
         final byte bitFrameSdd;
         final byte platformConfig;
         final byte selInfo;
@@ -511,13 +656,47 @@ final class LegacyNfcController {
             this.selInfo = selInfo;
             this.rats = rats;
         }
+
+        byte[] enabledConfig(byte[] uid) {
+            return RawNciCodec.legacyPayload(uid, bitFrameSdd, platformConfig, selInfo, rats);
+        }
+
+        boolean matches(Map<Integer, byte[]> values) {
+            return valueEquals(values, 0x30, bitFrameSdd) && valueEquals(values, 0x31, platformConfig)
+                    && valueEquals(values, 0x32, selInfo) && valueEquals(values, 0x58, rats);
+        }
+
+        private static boolean valueEquals(Map<Integer, byte[]> values, int id, byte expected) {
+            byte[] value = values.get(id);
+            return value != null && value.length == 1 && value[0] == expected;
+        }
     }
 
-    private interface CheckedAction {
+    interface CheckedAction {
         void run() throws Exception;
     }
 
-    private abstract static class PollingControl {
+    interface ConfigurationIo {
+        default byte[] readNfcid1(RawOperationReport report,
+                RawOperationReport.Operation operation,
+                RawOperationReport.Candidate candidate, String stage) throws Exception {
+            Map<Integer, byte[]> values = readConfiguration(
+                    new int[] {0x33}, report, operation, candidate, stage);
+            byte[] value = values.get(0x33);
+            if (value == null) throw new IllegalStateException("GET_CONFIG omitted LA_NFCID1");
+            return copy(value);
+        }
+
+        Map<Integer, byte[]> readConfiguration(int[] parameterIds, RawOperationReport report,
+                RawOperationReport.Operation operation, RawOperationReport.Candidate candidate,
+                String stage) throws Exception;
+
+        void setConfig(byte[] payload, RawOperationReport report,
+                RawOperationReport.Operation operation, RawOperationReport.Candidate candidate,
+                String stage) throws Exception;
+    }
+
+    abstract static class PollingControl {
         final String method;
 
         PollingControl(String method) {
@@ -579,6 +758,8 @@ final class LegacyNfcController {
 
         abstract void pause() throws Exception;
 
+        void awaitPauseApplied() throws Exception {}
+
         abstract void resume() throws Exception;
     }
 
@@ -633,6 +814,10 @@ final class LegacyNfcController {
             adapter.setDiscoveryTechnology(activity,
                     NfcAdapter.FLAG_READER_DISABLE,
                     NfcAdapter.FLAG_LISTEN_DISABLE);
+        }
+
+        @Override
+        void awaitPauseApplied() throws Exception {
             // updateDiscoveryTechnology applies routing asynchronously on some OEM stacks.
             // Do not race the following CORE_SET_CONFIG against that transition.
             Thread.sleep(ROUTING_SETTLE_MILLIS);
@@ -659,7 +844,7 @@ final class LegacyNfcController {
         }
     }
 
-    private static final class RawNciSession implements AutoCloseable {
+    private static final class RawNciSession implements AutoCloseable, ConfigurationIo {
         final NfcAdapter adapter;
         final Method sendMethod;
         final Method unregisterMethod;
@@ -782,23 +967,14 @@ final class LegacyNfcController {
             }
         }
 
-        void setConfig(byte[] payload, RawOperationReport report,
+        @Override
+        public void setConfig(byte[] payload, RawOperationReport report,
                 RawOperationReport.Operation operation,
                 RawOperationReport.Candidate candidate, String stage) throws Exception {
             RawOperationReport.RequestRecord request = report.addRequest(
                     operation, candidate, stage, "SET_CONFIG", payload);
             byte[] response = send(CORE_SET_CONFIG_OID, payload, request);
             requireControllerSuccess("CORE_SET_CONFIG", response, request);
-        }
-
-        byte[] readNfcid1(RawOperationReport report,
-                RawOperationReport.Operation operation,
-                RawOperationReport.Candidate candidate, String stage) throws Exception {
-            Map<Integer, byte[]> values = getConfig(
-                    new byte[] {1, 0x33}, report, operation, candidate, stage);
-            byte[] value = values.get(0x33);
-            if (value == null) throw new IllegalStateException("GET_CONFIG omitted LA_NFCID1");
-            return copy(value);
         }
 
         Verification verifyEnabled(byte[] uid, EmulationProfile profile,
@@ -808,16 +984,14 @@ final class LegacyNfcController {
                     new byte[] {5, 0x30, 0x31, 0x32, 0x33, 0x58},
                     report, operation, candidate, stage);
             boolean uidMatches = Arrays.equals(uid, values.get(0x33));
-            boolean exactProfile = valueEquals(values, 0x30, profile.bitFrameSdd)
-                    && valueEquals(values, 0x31, profile.platformConfig)
-                    && valueEquals(values, 0x32, profile.selInfo)
-                    && valueEquals(values, 0x58, profile.rats);
+            boolean exactProfile = profile.matches(values);
             AppLog.info("Legacy raw UID verification: uidMatches=" + uidMatches
                     + ", exactProfile=" + exactProfile);
             return new Verification(uidMatches, exactProfile);
         }
 
-        Map<Integer, byte[]> readConfiguration(int[] parameterIds,
+        @Override
+        public Map<Integer, byte[]> readConfiguration(int[] parameterIds,
                 RawOperationReport report, RawOperationReport.Operation operation,
                 RawOperationReport.Candidate candidate, String stage) throws Exception {
             byte[] payload = new byte[parameterIds.length + 1];
@@ -867,10 +1041,6 @@ final class LegacyNfcController {
             }
         }
 
-        private static boolean valueEquals(Map<Integer, byte[]> values, int id, byte expected) {
-            byte[] value = values.get(id);
-            return value != null && value.length == 1 && value[0] == expected;
-        }
     }
 
     private static String classifyUidOnlyFailure(RawOperationReport report) {

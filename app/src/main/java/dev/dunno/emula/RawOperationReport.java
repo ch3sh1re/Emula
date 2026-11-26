@@ -30,10 +30,13 @@ final class RawOperationReport {
         final String command;
         final byte[] tx;
         Integer frameworkStatus;
+        String transport;
+        Integer vendorStatus;
         byte[] rx;
         Integer controllerStatus;
         List<Integer> reportedParameterIds = new ArrayList<>();
         Long durationMillis;
+        // Read-only probe offsets from the same monotonic request start, not wall-clock time.
         Long frameworkReturnElapsedNanos;
         Long callbackElapsedNanos;
         String failure;
@@ -102,6 +105,9 @@ final class RawOperationReport {
             if (!"SET_CONFIG".equals(request.command) || request.failure == null) continue;
             String subject = request.candidate == Candidate.UID_ONLY
                     ? "UID-only SET" : "legacy profile SET";
+            if (request.vendorStatus != null && request.vendorStatus != 0) {
+                return subject + " rejected by NXP RF API (" + request.vendorStatus + ")";
+            }
             if (request.frameworkStatus != null && request.frameworkStatus != 0) {
                 return subject + " rejected by framework — "
                         + RawNciCodec.frameworkStatusName(request.frameworkStatus)
@@ -185,9 +191,14 @@ final class RawOperationReport {
         }
         text.append(indent).append("Stage: ").append(request.stage).append('\n');
         text.append(indent).append("TX: ").append(RawNciCodec.hex(request.tx)).append('\n');
+        if (request.transport != null) {
+            text.append(indent).append("Transport: ").append(request.transport).append('\n');
+            text.append(indent).append("Vendor status: ")
+                    .append(request.vendorStatus == null ? "no result" : request.vendorStatus).append('\n');
+        }
         text.append(indent).append("Framework: ");
         if (request.frameworkStatus == null) {
-            text.append("not sent");
+            text.append(request.transport == null ? "not sent" : "not used (vendor API)");
         } else {
             text.append(RawNciCodec.frameworkStatusName(request.frameworkStatus))
                     .append(" (").append(request.frameworkStatus).append(')');
@@ -196,7 +207,7 @@ final class RawOperationReport {
         text.append(indent).append("RX: ").append(RawNciCodec.hex(request.rx)).append('\n');
         text.append(indent).append("Controller: ");
         if (request.controllerStatus == null) {
-            text.append("no response");
+            text.append(request.transport == null ? "no response" : "not exposed by vendor API; see readback");
         } else {
             text.append(RawNciCodec.nciStatusName(request.controllerStatus))
                     .append(String.format(Locale.US, " (0x%02X)", request.controllerStatus));

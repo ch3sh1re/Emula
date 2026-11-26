@@ -1,9 +1,9 @@
 <resources>
-    <string name="receive_cards">Receive from phone</string>
+    <string name="receive_cards">Receive cards from phone</string>
     <string name="receive_wait">Waiting for phone…\nIn Emula on your paired phone, choose Send all cards to watch. Keep both apps open. Bluetooth only.</string>
-    <string name="receive_note">Existing cards are kept. Matching UIDs are skipped. Receiving cards does not start or change emulation.</string>
+    <string name="receive_note">New cards are added. Matching cards keep their watch names and can receive updated colors.</string>
     <string name="receive_retry">Try again</string>
-    <string name="receive_done">Added: %1$d\nSkipped matching UIDs: %2$d</string>
+    <string name="receive_done">Added: %1$d\nAlready saved or repeated: %2$d</string>
     <string name="receive_permission">Allow Nearby devices access to receive cards over Bluetooth.</string>
     <string name="receive_bluetooth">Turn on Bluetooth, then try again.</string>
     <string name="receive_failed">Could not complete the transfer. Check Bluetooth and try again from the phone. Repeating a transfer skips matching UIDs.</string>
@@ -19,14 +19,13 @@
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="back">Back</string>
-    <string name="empty">No cards yet</string>
+    <string name="empty">Add a card or receive cards from your phone.</string>
     <string name="saved">Card saved</string>
     <string name="deleted">Card deleted</string>
     <string name="delete_title">Delete %1$s?</string>
     <string name="delete_note">Remove this card from the watch? Active emulation will stop first.</string>
     <string name="card_missing">This card no longer exists</string>
     <string name="card_label">%1$s\n%2$s</string>
-    <string name="card_selected">● %1$s\n%2$s</string>
     <string name="card_accessibility">%1$s, UID %2$s. Tap to emulate.</string>
     <string name="card_active_accessibility">%1$s, UID %2$s. Emulation enabled. Tap to stop.</string>
     <string name="active">Emulation enabled</string>
@@ -52,10 +51,13 @@
     <string name="setup_once">One-time setup</string>
     <string name="setup_short">Enable emulation with a one-time ADB permission.</string>
     <string name="later">Later</string>
-    <string name="open_debugging">Open debugging settings</string>
-    <string name="debugging_unavailable">Open Developer options in watch settings.</string>
-    <string name="controls">Tap a card to emulate or stop. Hold to edit. Swipe left to delete.</string>
-    <string name="support_scope">Experimental on Android 15+ watches. Without the OEM UID API, Emula can try raw NFC with your approval. Compatibility depends on firmware and reader. Reader-confirmed: SM-L355F, 4-byte UID via OEM.</string>
+    <string name="reveal_developer_options">To show Developer options, tap Build number 7 times. On Pixel Watch, find it under Settings → System → About → Versions.</string>
+    <string name="open_watch_settings">Open watch settings</string>
+    <string name="enable_debugging">In Developer options, turn on ADB debugging and Wireless debugging.</string>
+    <string name="open_debugging">Open developer options</string>
+    <string name="open_settings_manually">Open Settings from the watch’s app list.</string>
+    <string name="controls">Tap a card to emulate or stop. Hold to edit. Swipe left and release after the vibration to open the delete confirmation.</string>
+    <string name="support_scope">Experimental on Android 15+ watches. Without the OEM UID API, Emula can try raw NFC with your approval. External readers confirmed a 4-byte UID via the OEM API on Samsung SM-L355F and Pixel Watch 3 (luna).</string>
     <string name="diagnostics">Diagnostics</string>
     <string name="prepare_report">Prepare report</string>
     <string name="experimental_nfc">Experimental NFC</string>
@@ -66,7 +68,7 @@
     <string name="grant_required">Grant the one-time ADB permission to enable emulation.</string>
     <string name="permission_ready">ADB permission granted</string>
     <string name="grant_command">adb shell pm grant %1$s android.permission.WRITE_SECURE_SETTINGS</string>
-    <string name="setup_note">Enable wireless debugging in watch Developer options. Pair an ADB client on your phone or computer, then run this command. Emula detects the permission automatically.</string>
+    <string name="setup_note">Pair your phone or computer with the watch, then run this command.</string>
     <string name="send_report">Send report to phone</string>
     <string name="report_wait">On your paired phone, open Emula → menu → Get watch diagnostics. Keep both apps open. Bluetooth only.</string>
     <string name="report_privacy">The report may contain card UIDs. Review it on the phone before sharing.</string>

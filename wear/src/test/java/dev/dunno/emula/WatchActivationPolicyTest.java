@@ -5,6 +5,52 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 public class WatchActivationPolicyTest {
+    private static byte[] parameters(OemNfcController.EmulationProfile profile) {
+        return new byte[] {profile.bitFrameSdd, profile.platformConfig, profile.selInfo, profile.rats};
+    }
+
+    @Test public void googleWatchesUseTheLunaParametersAcrossModelsAndGooglePhonesKeepMinimal() {
+        OemNfcController.EmulationProfile watch = OemNfcController.resolveProfile("Google", true);
+        assertEquals("pixel-watch-iso-dep", watch.name);
+        assertArrayEquals(new byte[] {4, 0, 0x20, 0}, parameters(watch));
+        assertSame(watch, OemNfcController.resolveProfile("google", true));
+        OemNfcController.EmulationProfile phone = OemNfcController.resolveProfile("Google", false);
+        assertEquals("pixel-minimal", phone.name);
+        assertArrayEquals(new byte[] {4, 0, 0, 0}, parameters(phone));
+    }
+
+    @Test public void samsungAndOtherOemsKeepCtsType4a() {
+        OemNfcController.EmulationProfile samsung = OemNfcController.resolveProfile("samsung", true);
+        assertEquals("cts-type-4a", samsung.name);
+        assertArrayEquals(new byte[] {6, 12, 0x20, 0x40}, parameters(samsung));
+        for (String maker : new String[] {"Samsung", "Other", null}) {
+            assertSame(samsung, OemNfcController.resolveProfile(maker, true));
+            assertSame(samsung, OemNfcController.resolveProfile(maker, false));
+        }
+    }
+
+    @Test public void liveControllerValuesAreComparedWithTheSelectedProfile() {
+        Map<Integer, byte[]> pixel = RawNciCodec.decodeConfiguration(
+                "30=04;31=00;32=20;33=11223344;58=00;85=00");
+        Map<Integer, byte[]> samsung = RawNciCodec.decodeConfiguration(
+                "30=06;31=0C;32=20;33=11223344;58=40;85=00");
+        for (String maker : new String[] {"Google", "Samsung"}) {
+            OemNfcController.EmulationProfile profile = OemNfcController.resolveProfile(maker, true);
+            OemOperationReport report = new OemOperationReport(OemOperationReport.Operation.ACTIVATE);
+            report.atqa = new byte[] {profile.bitFrameSdd, profile.platformConfig};
+            report.sak = new byte[] {profile.selInfo};
+            report.rats = new byte[] {profile.rats};
+            report.uid = new byte[] {0x11, 0x22, 0x33, 0x44};
+            Map<Integer, byte[]> expected = maker.equals("Google") ? pixel : samsung;
+            Map<Integer, byte[]> other = maker.equals("Google") ? samsung : pixel;
+            report.recordAndroidReadback(new LegacyNfcDiagnostics.ProbeResult("", "", "", expected));
+            assertEquals("MATCH", report.androidReadbackStatus);
+            assertEquals("MISMATCH", report.classifyAndroidReadback(other));
+            assertEquals("INCOMPLETE", report.classifyAndroidReadback(java.util.Collections.singletonMap(0x33, report.uid)));
+            assertEquals("MATCH", report.androidReadbackStatus);
+        }
+    }
+
     @Test public void oemRemainsPrimaryWithoutRawApiOrConsent() {
         assertEquals(WatchNfcSession.Path.OEM, WatchActivationPolicy.select(35, true, true, false, false));
         assertEquals(WatchNfcSession.Path.OEM, WatchActivationPolicy.select(36, true, true, true, true));

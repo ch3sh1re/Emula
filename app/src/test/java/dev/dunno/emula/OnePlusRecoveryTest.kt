@@ -4,13 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OnePlusRecoveryTest {
-    private val originalUid = byteArrayOf(0x11, 0x22, 0x33, 0x44)
+    private val originalUid = byteArrayOf(0x72, 0x67, 0x18, 0x1A)
     private val fingerprint = "oneplus-recovery-test-firmware"
 
     private inner class Device : OnePlusVendorNfcController.Platform {
         val values = mutableMapOf<String, String?>(
             "hce_access_card_mode" to "1", "hce_access_card_atqa" to "0400",
-            "hce_access_card_sak" to "28", "hce_access_card_uid" to "11223344",
+            "hce_access_card_sak" to "28", "hce_access_card_uid" to "7267181A",
         )
         var saved: OnePlusVendorNfcController.Snapshot? = null
         var currentFirmware = fingerprint
@@ -61,7 +61,7 @@ class OnePlusRecoveryTest {
             return true
         }
         fun retainOldMarker() {
-            saved = OnePlusVendorNfcController.Snapshot("1", "0400", "28", "11223344", fingerprint)
+            saved = OnePlusVendorNfcController.Snapshot("1", "0400", "28", "7267181A", fingerprint)
         }
     }
 
@@ -97,6 +97,42 @@ class OnePlusRecoveryTest {
         assertEquals(0, device.vendorCalls)
         assertEquals(0, device.settingsWrites)
         assertEquals(1, device.reads)
+    }
+
+    @Test fun reportSixDisabledMarkerCannotBeProvenRestoredFromCurrentDefaults() {
+        val reportedFirmware = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/" +
+                "B.R4T3.55357f5-2eb9868-2eda512:user/release-keys"
+        val device = Device().apply {
+            currentFirmware = reportedFirmware
+            deny = true
+            // The report has no saved metadata dump. Even granting the favorable
+            // assumption that settings match, it has no pre-write raw baseline.
+            values["hce_access_card_mode"] = "0"
+            values["hce_access_card_atqa"] = "0400"
+            values["hce_access_card_sak"] = "20"
+            values["hce_access_card_uid"] = "08000000"
+            saved = OnePlusVendorNfcController.Snapshot(
+                "0", "0400", "20", "08000000", reportedFirmware)
+            config = mutableMapOf(
+                0x30 to byteArrayOf(4), 0x31 to byteArrayOf(0),
+                0x32 to byteArrayOf(0x20), 0x33 to byteArrayOf(8, 0, 0, 0),
+                0x58 to byteArrayOf(0x41), 0x59 to byteArrayOf(), 0x85 to byteArrayOf(1),
+            )
+        }
+        val original = device.saved
+        val before = device.values.toMap()
+        val report = OemOperationReport(OemOperationReport.Operation.STARTUP_RESTORE)
+        assertTrue(OnePlusVendorNfcController.isPermissionBlocked(reportedFirmware, false))
+        assertThrows(SecurityException::class.java) {
+            OnePlusVendorNfcController.setCardEnabled(device, ByteArray(4), false, report)
+        }
+        assertSame(original, device.saved)
+        assertEquals("RESTORE_PENDING", report.snapshotState)
+        assertEquals("0", report.originalGuardMode)
+        assertEquals(1, device.vendorCalls)
+        assertEquals(0, device.reads)
+        assertEquals(0, device.settingsWrites)
+        assertEquals(before, device.values)
     }
 
     @Test fun newActivationCannotDiscardAnOlderSnapshotOnPermissionDenial() {
@@ -177,12 +213,21 @@ class OnePlusRecoveryTest {
             val uid = ByteArray(length) { (it + 1).toByte() }
             assertEquals("SUCCESS", activate(device, uid).result)
             assertArrayEquals(uid, device.config[0x33])
-            assertEquals("11223344", device.saved!!.uid)
+            assertEquals("7267181A", device.saved!!.uid)
             assertEquals("0", device.values["hce_access_card_mode"])
         }
         assertEquals("SUCCESS", restore(device).result)
         assertEquals(before, device.values)
         assertArrayEquals(originalUid, device.config[0x33])
         assertNull(device.saved)
+    }
+
+    @Test fun safePermissionRoutingIsScopedToTheReportedOnePlusFirmware() {
+        val reported = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/B.R4T3.55357f5-2eb9868-2eda512:user/release-keys"
+        assertTrue(OnePlusVendorNfcController.isPermissionBlocked(reported, false))
+        assertFalse(OnePlusVendorNfcController.isPermissionBlocked(reported, true))
+        assertFalse(OnePlusVendorNfcController.isPermissionBlocked(reported + "-other", false))
+        assertFalse(OnePlusVendorNfcController.isPermissionBlocked(null, false))
+        assertFalse(OnePlusVendorNfcController.isPermissionDenied(SecurityException("WRITE_SECURE_SETTINGS")))
     }
 }

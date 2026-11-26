@@ -6,6 +6,32 @@ import org.junit.Test
 
 class LegacyNfcControllerTest {
     @Test
+    fun phy110UsesForegroundDiscoveryFromAndroid15AndRemainsExperimental() {
+        for (sdk in listOf(35, 36, 37)) {
+            assertTrue(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(sdk, "OPPO", "PHY110"))
+        }
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(34, "OPPO", "PHY110"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(36, "OPPO", "PHY120"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(36, "OnePlus", "PHY110"))
+        assertFalse(RawNfcDeviceCatalog.isSupported("OPPO", "PHY110"))
+        assertFalse(RawNfcDeviceCatalog.prefersUidOnly("OPPO", "PHY110"))
+    }
+
+    @Test
+    fun oppoReportedModelRequiresExplicitForegroundPollAndListenDisable() {
+        for (sdk in listOf(36, 37)) {
+            assertTrue(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(sdk, "OPPO", "CPH2865"))
+        }
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(35, "OPPO", "CPH2865"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(36, "OPPO", "CPH2866"))
+        assertFalse(RawNfcDeviceCatalog.requiresForegroundDiscoveryControl(36, "OnePlus", "CPH2865"))
+        assertFalse(RawNfcDeviceCatalog.isSupported("OPPO", "CPH2865"))
+        assertFalse(RawNfcDeviceCatalog.prefersUidOnly("OPPO", "CPH2865"))
+        assertTrue(NfcActivationPolicy.choose(true, false, true, false, false, false) ==
+                NfcActivationPolicy.Path.CONFIRM_EXPERIMENTAL_RAW)
+    }
+
+    @Test
     fun rawModeIsLimitedToExplicitDeviceFamilies() {
         assertTrue(RawNfcDeviceCatalog.isSupported("Google", "Pixel 9"))
         assertTrue(RawNfcDeviceCatalog.isSupported("SAMSUNG", "SM-S928B"))

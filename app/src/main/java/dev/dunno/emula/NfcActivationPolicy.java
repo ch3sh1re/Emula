@@ -12,6 +12,19 @@ final class NfcActivationPolicy {
 
     private NfcActivationPolicy() {}
 
+    /** The reported firmware acknowledges OEM activation but keeps the random UID. */
+    static boolean requiresRawTrial(String manufacturer, String model, String fingerprint) {
+        return "Xiaomi".equalsIgnoreCase(manufacturer)
+                && "2506BPN68G".equalsIgnoreCase(model)
+                && ("Xiaomi/klimt_eea/klimt:17/CP2A.260605.016/"
+                + "OS3.0.336.0.XOSEUXM:user/release-keys").equals(fingerprint);
+    }
+
+    static boolean shouldRestoreOemAtStartup(boolean vendorPending, boolean modernApi,
+            boolean rawTrialRequired) {
+        return vendorPending || (modernApi && !rawTrialRequired);
+    }
+
     static Path choose(boolean activating, boolean modernApi, boolean rawApi,
             boolean cataloguedRawAvailable, boolean rawForced,
             boolean experimentalAcceptedForBuild) {

@@ -26,6 +26,10 @@ final class WatchCardPacket {
     private static final int HELLO = 0x454D5748;
     private static final int REQUEST = 0x454D5743;
     private static final int REPLY = 0x454D5741;
+    // Old peers finish at the v1 receipt. New peers then exchange colors in batch order.
+    private static final int COLOR_OFFER = 0x454D574F;
+    private static final int COLORS = 0x454D5750;
+    private static final int COLORS_SAVED = 0x454D5753;
 
     static final class Entry {
         final String name;
@@ -130,14 +134,15 @@ final class WatchCardPacket {
         Set<String> seen = new HashSet<>();
         for (SavedCard card : existing) seen.add(key(card.uid));
         int skipped = 0;
-        for (Entry entry : incoming) {
+        for (int i = 0; i < incoming.size(); i++) {
+            Entry entry = incoming.get(i);
             if (!UidCodec.isSupportedLength(entry.uid.length)) {
                 throw new IllegalArgumentException("Unsupported UID length");
             }
             if (!seen.add(key(entry.uid))) { skipped++; continue; }
             String name = entry.name.trim();
             cards.add(new SavedCard(UUID.randomUUID().toString(),
-                    name.isEmpty() ? defaultName : name, entry.uid));
+                    name.isEmpty() ? defaultName : name, entry.uid, CardPalette.defaultHue(i)));
         }
         return new Merge(cards, new Result(cards.size() - existing.size(), skipped));
     }
@@ -158,6 +163,57 @@ final class WatchCardPacket {
         if (added < 0 || skipped < 0 || added > MAX_CARDS || skipped > MAX_CARDS
                 || added + skipped != expected) throw invalid();
         return new Result(added, skipped);
+    }
+
+    static void sendColors(InputStream stream, OutputStream output, List<SavedCard> cards) throws IOException {
+        DataInputStream in = new DataInputStream(stream);
+        if (!optionalHeader(in, COLOR_OFFER)) return;
+        DataOutputStream out = new DataOutputStream(output);
+        out.writeInt(COLORS);
+        out.writeByte(VERSION);
+        out.writeInt(cards.size());
+        for (int i = 0; i < cards.size(); i++) out.writeFloat(cards.get(i).hueOrDefault(i));
+        out.flush();
+        header(in, COLORS_SAVED);
+    }
+
+    static float[] receiveColors(InputStream stream, OutputStream output, int count) throws IOException {
+        DataOutputStream out = new DataOutputStream(output);
+        try {
+            out.writeInt(COLOR_OFFER);
+            out.writeByte(VERSION);
+            out.flush();
+        } catch (IOException closedAfterReceipt) {
+            return null;
+        }
+        DataInputStream in = new DataInputStream(stream);
+        if (!optionalHeader(in, COLORS)) return null;
+        if (count < 1 || count > MAX_CARDS || in.readInt() != count) throw invalid();
+        float[] hues = new float[count];
+        for (int i = 0; i < count; i++) {
+            hues[i] = in.readFloat();
+            if (!CardPalette.valid(hues[i])) throw invalid();
+        }
+        return hues;
+    }
+
+    static void colorsSaved(OutputStream stream) throws IOException {
+        DataOutputStream out = new DataOutputStream(stream);
+        out.writeInt(COLORS_SAVED);
+        out.writeByte(VERSION);
+        out.flush();
+    }
+
+    private static boolean optionalHeader(DataInputStream in, int magic) throws IOException {
+        // BluetoothSocket may throw instead of returning EOF when a v1 peer closes.
+        int first;
+        try { first = in.read(); }
+        catch (IOException closedAfterReceipt) { return false; }
+        if (first < 0) return false;
+        int actual = (first << 24) | (in.readUnsignedByte() << 16)
+                | (in.readUnsignedByte() << 8) | in.readUnsignedByte();
+        if (actual != magic || in.readUnsignedByte() != VERSION) throw invalid();
+        return true;
     }
 
     private static void header(DataInputStream in, int magic) throws IOException {

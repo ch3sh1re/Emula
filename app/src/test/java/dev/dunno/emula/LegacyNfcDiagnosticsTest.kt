@@ -13,9 +13,9 @@ class LegacyNfcDiagnosticsTest {
     private val ids = listOf(0x30, 0x31, 0x32, 0x33, 0x58, 0x59, 0x85)
 
     @Test
-    fun lateResponseIsDecodedForEvidenceButNeverBecomesAWriteSnapshot() {
+    fun report8ResponseIsDecodedForEvidenceButNeverBecomesAWriteSnapshot() {
         val response = "00 07 30 01 04 31 01 00 32 01 20 33 04 01 02 03 04 " +
-            "58 01 41 59 02 11 22 85 01 01"
+            "58 01 80 59 10 02 48 58 00 00 00 00 00 00 00 00 00 00 00 00 00 85 01 01"
         val state = State()
         state.collect { _, record ->
             record.frameworkStatus = 3
@@ -35,8 +35,10 @@ class LegacyNfcDiagnosticsTest {
         assertTrue(formatted.contains("Observed parameters (framework FAILED; evidence only):"))
         assertTrue(formatted.contains("0x33 LA_NFCID1 = 01 02 03 04"))
         assertTrue(formatted.contains("Callback minus framework return: 1.100 ms"))
-        val result = LegacyNfcDiagnostics.ProbeResult(formatted, formatted, "FAILED", state.values)
+        val result = LegacyNfcDiagnostics.ProbeResult(formatted, formatted, "FAILED", state.values, state.report)
         assertFalse(LegacyNfcController.isCompleteExperimentalSnapshot(result.configuration))
+        assertEquals("RAW_FRAMEWORK_FAILED_WITH_RESPONSE",
+            NfcDiagnosticAssessment.assessProbe(result.report, null).code)
     }
 
     @Test

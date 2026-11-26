@@ -1,6 +1,7 @@
 package dev.dunno.emula;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
@@ -31,10 +32,6 @@ final class LocalWatchLink implements AutoCloseable {
     private BluetoothSocket socket;
     private BluetoothServerSocket server;
 
-    interface Receiver {
-        WatchCardPacket.Result save(List<WatchCardPacket.Entry> cards) throws Exception;
-    }
-
     interface Callback {
         void complete(WatchCardPacket.Result result);
         void failed(boolean timeout);
@@ -42,7 +39,7 @@ final class LocalWatchLink implements AutoCloseable {
 
     private interface Operation { WatchCardPacket.Result run() throws Exception; }
 
-    static LocalWatchLink send(BluetoothDevice device, byte[] packet, int count, Callback callback) {
+    static LocalWatchLink send(BluetoothDevice device, byte[] packet, List<SavedCard> cards, Callback callback) {
         LocalWatchLink link = new LocalWatchLink();
         link.start(() -> {
             BluetoothSocket socket = device.createRfcommSocketToServiceRecord(SERVICE);
@@ -51,12 +48,14 @@ final class LocalWatchLink implements AutoCloseable {
             WatchCardPacket.checkHello(socket.getInputStream());
             socket.getOutputStream().write(packet);
             socket.getOutputStream().flush();
-            return WatchCardPacket.readReply(socket.getInputStream(), count);
+            WatchCardPacket.Result result = WatchCardPacket.readReply(socket.getInputStream(), cards.size());
+            WatchCardPacket.sendColors(socket.getInputStream(), socket.getOutputStream(), cards);
+            return result;
         }, callback);
         return link;
     }
 
-    static LocalWatchLink receive(BluetoothAdapter adapter, Receiver receiver, Callback callback) {
+    static LocalWatchLink receive(BluetoothAdapter adapter, Context context, Callback callback) {
         LocalWatchLink link = new LocalWatchLink();
         link.start(() -> {
             BluetoothServerSocket server = adapter.listenUsingRfcommWithServiceRecord("Emula cards", SERVICE);
@@ -70,8 +69,14 @@ final class LocalWatchLink implements AutoCloseable {
             WatchCardPacket.hello(socket.getOutputStream());
             List<WatchCardPacket.Entry> cards = WatchCardPacket.read(socket.getInputStream());
             if (link.cancelled.get() || link.timedOut) throw new IOException("Transfer cancelled");
-            WatchCardPacket.Result result = receiver.save(cards);
+            WatchCardPacket.Result result = CardStore.appendReceived(context, cards);
             WatchCardPacket.reply(socket.getOutputStream(), result);
+            float[] hues = WatchCardPacket.receiveColors(socket.getInputStream(), socket.getOutputStream(), cards.size());
+            if (hues != null) {
+                if (link.cancelled.get() || link.timedOut) throw new IOException("Transfer cancelled");
+                CardStore.applyReceivedColors(context, cards, hues);
+                WatchCardPacket.colorsSaved(socket.getOutputStream());
+            }
             return result;
         }, callback);
         return link;
@@ -85,6 +90,7 @@ final class LocalWatchLink implements AutoCloseable {
             }, 90, TimeUnit.SECONDS);
             try {
                 WatchCardPacket.Result result = operation.run();
+                if (timedOut) throw new IOException("Transfer timed out");
                 MAIN.post(() -> { if (!cancelled.get()) callback.complete(result); });
             } catch (Exception failure) {
                 MAIN.post(() -> { if (!cancelled.get()) callback.failed(timedOut); });

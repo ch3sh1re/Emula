@@ -10,6 +10,10 @@ class PhoneNfcSessionTest {
     private class Backend(initial: List<SavedCard>) : PhoneNfcSession.Backend {
         val cards = initial.toMutableList()
         val calls = mutableListOf<String>()
+        var flagOnly = false
+        override fun flagOnlyBootCheckPending() = flagOnly
+        override fun checkFlagOnlyBootRecord() { calls += "check flag" }
+
         var active: String? = null
         var last: String? = null
         var initializationFails = false
@@ -89,6 +93,21 @@ class PhoneNfcSessionTest {
         val backend = Backend(listOf(first))
         val session = PhoneNfcSession(backend)
         session.toggle(first.id)
+        session.toggle(first.id)
+        assertNull(backend.active)
+        assertEquals(listOf("restore", "change:first:false", "change:null:false"), backend.calls)
+    }
+
+    @Test fun rawOnlySessionFinishesInitializationWithoutOemResetAndCanToggleOff() {
+        val backend = Backend(listOf(first)).apply {
+            initializationReady = !NfcActivationPolicy.shouldRestoreOemAtStartup(false, false, false)
+        }
+        val session = PhoneNfcSession(backend)
+        session.toggle(first.id)
+        backend.pending = true
+        session.initialize() // Reopening the UI must keep the raw session and its snapshot.
+        assertEquals(first.id, backend.active)
+        assertTrue(backend.pending)
         session.toggle(first.id)
         assertNull(backend.active)
         assertEquals(listOf("restore", "change:first:false", "change:null:false"), backend.calls)
@@ -241,5 +260,22 @@ class PhoneNfcSessionTest {
         session.toggle(first.id)
         assertEquals(listOf("restore", "change:first:false", "restore", "restore", "change:first:false"), backend.calls)
         assertFalse(backend.pending)
+    }
+
+    @Test fun foregroundRetryRechecksTheRecordAndNeverRunsGeneralInitialization() {
+        val backend = Backend(listOf(first))
+        val session = PhoneNfcSession(backend)
+        session.checkForegroundBootRecord()
+        backend.flagOnly = true
+        assertTrue(session.needsForegroundBootCheck())
+        backend.active = first.id
+        session.checkForegroundBootRecord()
+        backend.active = null
+        backend.flagOnly = false
+        session.checkForegroundBootRecord()
+        assertTrue(backend.calls.isEmpty())
+        backend.flagOnly = true
+        session.checkForegroundBootRecord()
+        assertEquals(listOf("check flag"), backend.calls)
     }
 }
