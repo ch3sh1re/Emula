@@ -105,7 +105,13 @@ public final class WatchCardTileService extends TileService {
         if (pending != null) {
             for (SavedCard saved : cards) if (saved.id.equals(pending.cardId)) { activeCard = saved; break; }
         }
-        result.set(layout.cards(card, activeCard, next, pending, store.revision(), seconds, prefs.getString("error", "")));
+        long revision = store.revision();
+        boolean delivered = result.set(layout.cards(card, activeCard, next, pending, revision, seconds,
+                prefs.getString("error", "")));
+        if (delivered && operated && pending != null && tap.kind == WatchTileAction.Kind.START) {
+            WatchStopAlarm.activeTileDelivered(pending, seconds);
+        }
+        if (delivered && pending == null) WatchStopAlarm.idleTileDelivered(tileId, revision);
         if (operated) refresh(this, tileId);
     }
 

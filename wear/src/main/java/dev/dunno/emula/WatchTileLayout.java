@@ -1,5 +1,6 @@
 package dev.dunno.emula;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.os.SystemClock;
 
@@ -15,7 +16,10 @@ import androidx.wear.protolayout.TimelineBuilders.Timeline;
 import androidx.wear.protolayout.TimelineBuilders.TimelineEntry;
 import androidx.wear.protolayout.TypeBuilders.BoolProp;
 import androidx.wear.protolayout.TypeBuilders.FloatProp;
+import androidx.wear.protolayout.expression.AnimationParameterBuilders.AnimationParameters;
+import androidx.wear.protolayout.expression.AnimationParameterBuilders.AnimationSpec;
 import androidx.wear.protolayout.expression.DynamicBuilders.DynamicBool;
+import androidx.wear.protolayout.expression.DynamicBuilders.DynamicFloat;
 import androidx.wear.protolayout.expression.DynamicBuilders.DynamicInstant;
 import androidx.wear.protolayout.expression.ProtoLayoutExperimental;
 import androidx.wear.protolayout.expression.VersionBuilders.VersionInfo;
@@ -75,20 +79,39 @@ final class WatchTileLayout {
         // A successful alarm clears the durable session and advances its revision once.
         // Buttons from this forecast are usable only after that exact transition has happened.
         LayoutElement ready = cardView(selected, next, null, revision + 1, seconds, "");
-        long end = System.currentTimeMillis() + remaining;
-        if (supports(300)) return timedTile(active, ready, end);
+        long deadline = System.currentTimeMillis() + remaining;
+        if (supports(300)) return timedTile(active, ready, deadline);
         TimelineEntry timed = new TimelineEntry.Builder().setLayout(Layout.fromLayoutElement(center(active)))
-                .setValidity(new TimeInterval.Builder().setEndMillis(end).build()).build();
+                .setValidity(new TimeInterval.Builder().setEndMillis(deadline).build()).build();
         return new Tile.Builder().setResourcesVersion(VERSION).setTileTimeline(new Timeline.Builder()
                 .addTimelineEntry(timed).addTimelineEntry(TimelineEntry.fromLayoutElement(center(ready))).build()).build();
     }
 
+    // Round up the absolute fallback used by a renderer with a whole-second clock.
+    static long displayStopMillis(long deadlineMillis) {
+        return ((deadlineMillis + 999) / 1000) * 1000;
+    }
+
+    static long feedbackDelayMillis(long stopAt, long presentedUntil, long now) {
+        return Math.max(0, Math.min(presentedUntil, stopAt + 1000L) - now);
+    }
+
     // The renderer can switch the visible buttons on its own clock, even if an update is queued.
     @androidx.annotation.OptIn(markerClass = ProtoLayoutExperimental.class)
-    private static Tile timedTile(LayoutElement active, LayoutElement ready, long endMillis) {
-        Instant end = Instant.ofEpochSecond((endMillis + 999) / 1000);
-        DynamicBool running = DynamicInstant.platformTimeWithSecondsPrecision()
-                .durationUntil(DynamicInstant.withSecondsPrecision(end)).toIntSeconds().gt(0);
+    private static Tile timedTile(LayoutElement active, LayoutElement ready, long deadline) {
+        DynamicInstant now = DynamicInstant.platformTimeWithSecondsPrecision();
+        DynamicBool running = DynamicInstant.withSecondsPrecision(Instant.ofEpochMilli(displayStopMillis(deadline)))
+                .durationUntil(now).toIntSeconds().lt(0);
+        if (ValueAnimator.getDurationScale() == 1f) {
+            // Keep the active value from the first frame. A start delay also delays that value on Wear.
+            long remaining = Math.max(1, deadline - System.currentTimeMillis());
+            AnimationSpec step = new AnimationSpec.Builder().setAnimationParameters(new AnimationParameters.Builder()
+                    .setDurationMillis(remaining).build()).build();
+            DynamicBool beforeStep = DynamicFloat.animate(0f, 1f, step).lt(1f);
+            DynamicBool beforeLastSecond = DynamicInstant.withSecondsPrecision(Instant.ofEpochMilli(deadline))
+                    .durationUntil(now).toIntSeconds().lt(0);
+            running = running.and(beforeLastSecond.or(beforeStep));
+        }
         Box.Builder stack = new Box.Builder().setWidth(expand()).setHeight(expand());
         stack.addContent(layer(active, new BoolProp.Builder(true).setDynamicValue(running).build()));
         stack.addContent(layer(ready, new BoolProp.Builder(false).setDynamicValue(running.negate()).build()));

@@ -47,4 +47,17 @@ public class WatchTileActionTest {
         assertFalse(cached.applies(activeRevision + 1, "b", null));
         assertFalse(cached.applies(activeRevision + 2, "a", null));
     }
+
+    @Test public void coarseTileClockRoundsExpiryUpToAWholeSecond() {
+        assertEquals(10000L, WatchTileLayout.displayStopMillis(10000L));
+        assertEquals(11000L, WatchTileLayout.displayStopMillis(10001L));
+        assertEquals(11000L, WatchTileLayout.displayStopMillis(10999L));
+    }
+
+    @Test public void delayedPresentationCannotPostponeFeedbackBeyondOneDisplaySecond() {
+        assertEquals(250L, WatchTileLayout.feedbackDelayMillis(5000, 5300, 5050));
+        assertEquals(950L, WatchTileLayout.feedbackDelayMillis(5000, 9000, 5050));
+        assertEquals(0L, WatchTileLayout.feedbackDelayMillis(5000, 5000, 5050));
+        assertEquals(0L, WatchTileLayout.feedbackDelayMillis(5000, 5300, 6200));
+    }
 }
