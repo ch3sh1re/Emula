@@ -37,6 +37,8 @@ distribution/
 docs/history/
 diagnostics/
 /user-artifacts/
+/.codex-attachments/
+/devices.csv
 /reports/
 captures/
 watch-evidence/
