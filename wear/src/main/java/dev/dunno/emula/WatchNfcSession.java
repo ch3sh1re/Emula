@@ -10,13 +10,26 @@ final class WatchNfcSession {
         final String snapshot;
         final String cardId;
         final boolean active;
+        final String timerId;
+        final long stopAtElapsed;
 
         Pending(Path path, String firmware, String snapshot, String cardId, boolean active) {
+            this(path, firmware, snapshot, cardId, active, "", 0);
+        }
+
+        Pending(Path path, String firmware, String snapshot, String cardId, boolean active,
+                String timerId, long stopAtElapsed) {
             this.path = path;
             this.firmware = firmware;
             this.snapshot = snapshot;
             this.cardId = cardId;
             this.active = active;
+            this.timerId = timerId;
+            this.stopAtElapsed = stopAtElapsed;
+        }
+
+        boolean isDue(String alarmId, long nowElapsed) {
+            return !timerId.isEmpty() && timerId.equals(alarmId) && nowElapsed >= stopAtElapsed;
         }
     }
 
@@ -43,6 +56,11 @@ final class WatchNfcSession {
     }
 
     void activate(String cardId, byte[] uid, Path path, boolean rawConsent) throws Exception {
+        activate(cardId, uid, path, rawConsent, "", 0);
+    }
+
+    void activate(String cardId, byte[] uid, Path path, boolean rawConsent,
+            String timerId, long stopAtElapsed) throws Exception {
         if (uid == null || !UidCodec.isSupportedLength(uid.length)) {
             throw new IllegalArgumentException("UID must contain 4, 7, or 10 bytes");
         }
@@ -54,11 +72,11 @@ final class WatchNfcSession {
         if (path == Path.RAW && (snapshot == null || snapshot.isEmpty())) {
             throw new IllegalStateException("Could not save the original NFC configuration");
         }
-        Pending pending = new Pending(path, firmware, snapshot, cardId, false);
+        Pending pending = new Pending(path, firmware, snapshot, cardId, false, timerId, stopAtElapsed);
         store.save(pending); // Must reach durable storage before the first configuration write.
         try {
             backend.activate(path, uid.clone(), snapshot);
-            store.save(new Pending(path, firmware, snapshot, cardId, true));
+            store.save(new Pending(path, firmware, snapshot, cardId, true, timerId, stopAtElapsed));
         } catch (Throwable failure) {
             boolean interrupted = Thread.interrupted();
             try {

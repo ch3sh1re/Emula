@@ -56,6 +56,35 @@ public class WatchNfcSessionTest {
         assertNull(f.pending);
     }
 
+    @Test public void oldAlarmCannotStopTheSameCardAfterReactivation() throws Exception {
+        Fixture f = new Fixture();
+        WatchNfcSession session = f.session("fw1");
+        session.activate("card", UID, WatchNfcSession.Path.OEM, false, "first", 3000);
+        assertFalse(f.pending.isDue("first", 2999));
+        assertTrue(f.pending.isDue("first", 3000));
+        session.restore();
+        session.activate("card", UID, WatchNfcSession.Path.OEM, false, "second", 3100);
+        assertFalse(f.pending.isDue("first", 4000));
+        assertTrue(f.pending.isDue("second", 4000));
+        session.restore();
+        session.activate("card", UID, WatchNfcSession.Path.OEM, false);
+        assertFalse(f.pending.isDue("second", 4000));
+        assertFalse(f.pending.isDue("", 4000));
+    }
+
+    @Test public void failedTimedRestoreKeepsItsOriginalSnapshotAndTimerIdentity() throws Exception {
+        Fixture f = new Fixture();
+        WatchNfcSession session = f.session("fw1");
+        session.activate("a", UID, WatchNfcSession.Path.RAW, true, "test", 5000);
+        f.failRestore = true;
+        assertThrows(Exception.class, session::restore);
+        assertEquals(f.snapshot, f.pending.snapshot);
+        assertTrue(f.pending.isDue("test", 5001));
+        f.failRestore = false;
+        session.restore();
+        assertNull(f.pending);
+    }
+
     @Test public void rawRequiresConsentBeforeAnyProbeOrWrite() {
         Fixture f = new Fixture();
         assertThrows(IllegalStateException.class,

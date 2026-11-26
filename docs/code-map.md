@@ -18,6 +18,8 @@
 | --- | --- |
 | `wear/…/WatchActivity`, `WatchCardSwipe` | Card list, gestures, editor, setup and diagnostics. |
 | `WatchActivationPolicy`, `WatchHardwareBackend` | Watch capabilities, activation, readback and recovery. |
+| `WatchCardTileService`, `WatchTileLayout`, `WatchTileAction` | Wear tile, saved-card selection and replay-safe actions. |
+| `WatchNfcRuntime`, `WatchNfcSession`, `WatchSessionStore`, `WatchStopAlarm` | Shared watch NFC queue, durable session and optional timed restoration. |
 | `app/…/WatchCardSender`, `WatchCardPacket`, `LocalWatchLink` | Paired Bluetooth card transfer, acknowledgements and optional color exchange. |
 | `WatchReportPacket`, `WatchReportLink`, `WatchReportReceiver` | A separate paired transfer for a user-selected diagnostic report. |
 | `wear/build.gradle.kts` | Selects shared phone sources and launcher resources for the watch build. |
