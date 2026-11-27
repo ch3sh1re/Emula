@@ -10,7 +10,7 @@ keys, authentication, and protected application data are not copied.
 [Compatibility](docs/compatibility.md) · [Wear OS](wear/README.md) ·
 [Changelog](CHANGELOG.md) · [GPLv3](LICENSE)
 
-**Current sources** — Android phones 1.0.40 (60) and Wear OS 1.0.7 (10008). Find published APKs on [GitHub Releases](https://github.com/ch3sh1re/Emula/releases).
+**Current sources** — Android phones 1.0.42 (62) and Wear OS 1.0.7 (10008). Find published APKs on [GitHub Releases](https://github.com/ch3sh1re/Emula/releases).
 
 ## Background
 

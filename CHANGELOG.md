@@ -1,5 +1,13 @@
 # Changelog
 
+## Phone 1.0.42 (62)
+
+- Fixed a startup issue on OnePlus phones after upgrading from Android 16 to 17. Emula checks the current NFC settings before archiving a recovery record from the previous firmware.
+
+## Phone 1.0.41 (61)
+
+- Added an experimental NFC activation option for the Fairphone 5 and Redmi Note 13 4G NFC (sapphiren) through their ST service. Emula checks the UID after activation and the saved settings after Stop.
+
 ## Wear OS 1.0.7 (10008)
 
 - Add the Emula cards tile to your watch and tap a saved card to start or stop emulation.
