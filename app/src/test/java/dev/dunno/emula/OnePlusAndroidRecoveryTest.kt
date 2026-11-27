@@ -20,8 +20,8 @@ class OnePlusAndroidRecoveryTest {
         fun selected(forced: Boolean = false, reviewed: Boolean = true, blocked: Boolean = true,
                      api: Boolean = true, snapshot: OnePlusVendorNfcController.Snapshot? = saved,
                      raw: Boolean = false, other: Boolean = false) =
-            OnePlusAndroidRecovery.eligible(forced, reviewed, blocked, api, snapshot, raw, other,
-                OnePlusRawRecovery.FIRMWARE, "CPH2747")
+            OnePlusAndroidRecovery.eligible(forced, snapshot, raw, other,
+                OnePlusRawRecovery.FIRMWARE, "CPH2747", "OP611FL1") { reviewed && blocked && api }
         assertTrue(selected())
         assertFalse(selected(forced = true)); assertFalse(selected(reviewed = false))
         assertFalse(selected(blocked = false)); assertFalse(selected(api = false))
@@ -35,24 +35,50 @@ class OnePlusAndroidRecoveryTest {
         assertFalse(OnePlusVendorNfcController.matchesAndroidService(170000014, "17.0.0.updated"))
     }
 
-    @Test fun anAndroid16SnapshotMustBelongToThisProductAndTheReviewedBuild() {
-        val current = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/B.R4T3.50a3663-29f0eba-29fce1c:user/release-keys"
-        fun old(product: String) = "OnePlus/$product/OP611FL1:16/BP2A.250605.015/B.R4T3.1abf132_aeee51_aea830:user/release-keys"
-        fun eligible(source: String, product: String, mode: String = "0", raw: Boolean = false,
-                     other: Boolean = false, hasAndroid: Boolean = true) = OnePlusAndroidRecovery.eligible(
-            false, true, true, hasAndroid, OnePlusVendorNfcController.Snapshot(mode, null, null, null, source),
-            raw, other, current.replace("/CPH2747/", "/$product/"), product)
-        for (product in listOf("CPH2747", "CPH2747EEA")) assertTrue(eligible(old(product), product))
-        assertFalse(eligible(old("CPH2747EEA"), "CPH2747"))
-        assertFalse(eligible(old("CPH2747").replace("1abf132", "unknown"), "CPH2747"))
-        assertFalse(eligible(old("CPH2747"), "CPH2747", mode = "1"))
-        assertFalse(eligible(old("CPH2747"), "CPH2747", raw = true))
-        assertFalse(eligible(old("CPH2747"), "CPH2747", other = true))
-        assertFalse(eligible(old("CPH2747"), "CPH2747", hasAndroid = false))
-        assertTrue(OnePlusVendorNfcController.reviewedAndroidPhone(37, "OnePlus", "CPH2747", "OP611FL1"))
-        assertFalse(OnePlusVendorNfcController.reviewedAndroidPhone(36, "OnePlus", "CPH2747", "OP611FL1"))
-        assertFalse(OnePlusVendorNfcController.reviewedAndroidPhone(37, "OnePlus", "CPH2581", "OP595DL1"))
-        assertFalse(OnePlusRawRecovery.isTarget(37, "OnePlus", "CPH2747", current))
+    @Test fun android16To17RecoveryDoesNotConsultAModelListOrAnActivationApi() {
+        // The Nord 5 destination is a test fixture, not a hardware result.
+        for ((product, device) in listOf("CPH2747" to "OP611FL1", "CPH2747EEA" to "OP611FL1",
+                "CPH2707IN" to "OP6131L1", "futureProduct" to "futureDevice")) {
+            val source = "OnePlus/$product/$device:16/other.id/vendor.16.patch:user/release-keys"
+            val current = "OnePlus/$product/$device:17/new.id/vendor.17.patch:user/release-keys"
+            fun selected(mode: String? = "0", forced: Boolean = false, raw: Boolean = false, other: Boolean = false) =
+                OnePlusAndroidRecovery.eligible(forced, OnePlusVendorNfcController.Snapshot(mode, null, null, null, source),
+                    raw, other, current, product, device) { error("An OTA check must not resolve an activation API") }
+            assertTrue(selected())
+            assertFalse(selected(mode = null))
+            assertFalse(selected(mode = "1"))
+            assertFalse(selected(forced = true))
+            assertFalse(selected(raw = true))
+            assertFalse(selected(other = true))
+            assertFalse(OnePlusRawRecovery.isTarget(37, "OnePlus", product, current))
+        }
+        assertTrue(OnePlusAndroidRecovery.onePlusAndroid17(37, "OnePlus"))
+        assertFalse(OnePlusAndroidRecovery.onePlusAndroid17(37, "OPPO"))
+        assertFalse(OnePlusAndroidRecovery.onePlusAndroid17(36, "OnePlus"))
+        assertFalse(OnePlusVendorNfcController.reviewedAndroidPhone(37, "OnePlus", "CPH2707", "OP6131L1"))
+    }
+
+    @Test fun anOtaRecordRequiresTheSameStockProductDeviceAndUpgradeDirection() {
+        val old = "OnePlus/CPH2707IN/OP6131L1:16/old.id/old.patch:user/release-keys"
+        val current = "OnePlus/CPH2707IN/OP6131L1:17/new.id/new.patch:user/release-keys"
+        fun matches(source: String? = old, destination: String? = current, product: String = "CPH2707IN",
+                    device: String = "OP6131L1") =
+            OnePlusAndroidRecovery.updatedFrom16(source, destination, product, device)
+        assertTrue(matches())
+        for ((part, replacement) in listOf("OnePlus" to "other", "CPH2707IN" to "CPH2707EU",
+                "OP6131L1" to "OP611FL1", "user/" to "userdebug/", "release-keys" to "test-keys",
+                "user/release-keys" to "user/release-keys/extra")) {
+            assertFalse(matches(source = old.replace(part, replacement)))
+            assertFalse(matches(destination = current.replace(part, replacement)))
+        }
+        for (source in listOf(null, "", current, old.replace(":16/", ":15/"),
+                old.replace("old.id", ""), old.replace("old.patch", "has space"))) {
+            assertFalse(matches(source = source))
+        }
+        assertFalse(matches(destination = old))
+        assertFalse(matches(destination = current.replace(":17/", ":18/")))
+        assertFalse(matches(product = "CPH2707"))
+        assertFalse(matches(device = "other"))
     }
 
     @Test fun matchingWrittenParametersStillRequireReaderEvidenceForEveryUidLength() {

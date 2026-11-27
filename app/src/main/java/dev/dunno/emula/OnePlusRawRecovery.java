@@ -95,7 +95,8 @@ final class OnePlusRawRecovery {
         report.stage = "CHECK_DISABLED_VENDOR_STATE";
         report.snapshotState = "RESTORE_PENDING";
         report.originalGuardMode = saved.mode;
-        if (!Objects.equals(sourceFirmware, currentFirmware)) {
+        boolean systemUpdate = !Objects.equals(sourceFirmware, currentFirmware);
+        if (systemUpdate) {
             report.notes.add("Snapshot firmware: " + saved.fingerprint);
             report.notes.add("Observed firmware: " + currentFirmware);
         }
@@ -110,8 +111,8 @@ final class OnePlusRawRecovery {
                 throw new IllegalStateException("Original OnePlus settings differ; vendor recovery retained");
             }
             Map<Integer, byte[]> current = platform.read();
-            if (!reportedIdleConfiguration(current)) {
-                throw new IllegalStateException("NFC is not in the reported system-managed state; recovery retained");
+            if (!archiveIdleConfiguration(current, sourceFirmware, currentFirmware)) {
+                throw new IllegalStateException("NFC readback differs from the known idle profiles or is incomplete; recovery retained");
             }
             if (!platform.allowed() || !same(live, platform.settings())
                     || !same(saved, platform.vendorSnapshot())) {
@@ -120,15 +121,20 @@ final class OnePlusRawRecovery {
             report.stage = "ARCHIVE_DISABLED_VENDOR_STATE";
             platform.archiveAndRelease(saved, copy(current));
             report.stage = "COMPLETE";
-            if (!sourceFirmware.equals(currentFirmware)) report.result = "ARCHIVED_AFTER_SYSTEM_UPDATE";
-            else report.result = androidOem ? "ARCHIVED_FOR_ANDROID_OEM" : "ARCHIVED_FOR_EXPLICIT_RAW_TRIAL";
+            if (systemUpdate) {
+                report.result = "ARCHIVED_AFTER_SYSTEM_UPDATE";
+                report.notes.add("Android 16 vendor metadata and seven idle NFC parameters verified on Android 17. "
+                        + "Original record archived; no NFC setter called.");
+            } else {
+                report.result = androidOem ? "ARCHIVED_FOR_ANDROID_OEM" : "ARCHIVED_FOR_EXPLICIT_RAW_TRIAL";
+                report.notes.add(androidOem
+                        ? "Reviewed Android OEM route selected. Original vendor record retained; matching metadata "
+                                + "and all seven reported idle parameters checked without setters. "
+                                + "Historical vendor restoration and reader success are not claimed."
+                        : "Raw mode selected. Original vendor record retained; current system-managed "
+                                + "settings accepted as the raw baseline. Historical vendor restoration is not claimed.");
+            }
             report.snapshotState = "ARCHIVED";
-            report.notes.add(androidOem
-                    ? "Reviewed Android OEM route selected. Original vendor record retained; matching metadata "
-                            + "and all seven reported idle parameters checked without setters. "
-                            + "Historical vendor restoration and reader success are not claimed."
-                    : "Raw mode selected. Original vendor record retained; current system-managed "
-                            + "settings accepted as the raw baseline. Historical vendor restoration is not claimed.");
         } catch (Exception failure) {
             report.stage = "FAILED";
             report.failure = failure.getClass().getSimpleName() + ": " + failure.getMessage();
@@ -221,6 +227,14 @@ final class OnePlusRawRecovery {
         return idleConfiguration(config, (byte) 0x41);
     }
 
+    // The second full profile was observed after boot on OnePlus 11, 12 and 15.
+    // Accept it only for archiving an earlier OS record, never as a raw write baseline.
+    private static boolean archiveIdleConfiguration(Map<Integer, byte[]> config, String saved, String observed) {
+        if (saved.equals(observed)) return reportedIdleConfiguration(config);
+        return OnePlusAndroidRecovery.sameDeviceUpdate(saved, observed)
+                && (reportedIdleConfiguration(config) || OnePlusLegacyRecovery.matchesPostBootProfile(config));
+    }
+
     /** Android 17 disable writes 0x58=00; preserve that live baseline, never rewrite it to 41. */
     static boolean rawIdleConfiguration(Map<Integer, byte[]> config, boolean androidDisabledIdle) {
         return reportedIdleConfiguration(config)
@@ -296,7 +310,7 @@ final class OnePlusRawRecovery {
         void archiveAndRelease(OnePlusVendorNfcController.Snapshot saved, Map<Integer, byte[]> current,
                 String observedFirmware) {
             if (!"0".equals(saved.mode) || saved.fingerprint == null || observedFirmware == null
-                    || !reportedIdleConfiguration(current)) {
+                    || !archiveIdleConfiguration(current, saved.fingerprint, observedFirmware)) {
                 throw new IllegalStateException("Invalid OnePlus recovery archive");
             }
             if (!same(saved, OnePlusVendorNfcController.loadSnapshot(vendor))) {

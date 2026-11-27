@@ -153,7 +153,7 @@ final class OemNfcController {
             }
 
             boolean onePlusAccessDenied = false;
-            if (OnePlusVendorNfcController.isTargetDevice()) {
+            if (OnePlusVendorNfcController.isTargetDevice() || OnePlusVendorNfcController.hasPendingRestore(context)) {
                 try {
                     report.stage = "RESOLVE_ONEPLUS_VENDOR_HCE";
                     OnePlusVendorNfcController.Api vendorApi =
@@ -165,6 +165,7 @@ final class OemNfcController {
                     return;
                 } catch (OnePlusVendorNfcController.ResolutionException unavailable) {
                     if (OnePlusVendorNfcController.hasPendingRestore(context)) {
+                        report.path = OemOperationReport.Path.ONEPLUS_VENDOR_HCE;
                         report.notes.add("OnePlus vendor HCE unavailable; pending state kept: "
                                 + describe(unavailable));
                         throw new IllegalStateException(

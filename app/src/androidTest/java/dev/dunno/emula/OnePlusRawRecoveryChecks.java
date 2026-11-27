@@ -70,12 +70,15 @@ final class OnePlusRawRecoveryChecks {
             check(raw.getString("archive_uid", "").equals("08000000"));
 
             // A pending snapshot from an earlier OS lives in the Android OEM archive only.
-            final String previous = "OnePlus/CPH2747/OP611FL1:16/BP2A.250605.015/"
-                    + "B.R4T3.1abf132_aeee51_aea830:user/release-keys";
-            final String current = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/"
-                    + "B.R4T3.50a3663-29f0eba-29fce1c:user/release-keys";
+            // A different product and patch pair exercises OTA storage independently of raw storage.
+            final String previous = "OnePlus/CPH2707IN/OP6131L1:16/old.id/previous.patch:user/release-keys";
+            final String current = "OnePlus/CPH2707IN/OP6131L1:17/new.id/current.patch:user/release-keys";
+            config.put(0x58, new byte[] {0x74});
             check(vendor.edit().putString("fingerprint", previous).commit());
             OnePlusVendorNfcController.Snapshot old = OnePlusVendorNfcController.loadSnapshot(vendor);
+            OnePlusRawRecovery.Storage otaStore = new OnePlusRawRecovery.Storage(ota, vendor);
+            expectFailure(() -> otaStore.archiveAndRelease(old, config, current.replace("CPH2707IN", "other")));
+            check(ota.getAll().isEmpty() && vendor.getBoolean("pending", false));
             expectFailure(() -> new OnePlusRawRecovery.Storage(failFirstCommit(ota), vendor)
                     .archiveAndRelease(old, config, current));
             check(vendor.getBoolean("pending", false));
@@ -85,7 +88,7 @@ final class OnePlusRawRecoveryChecks {
             check(previous.equals(ota.getString("archive_firmware", null)));
             check(current.equals(ota.getString("archive_observed_firmware", null)));
             check(old.uid.equals(ota.getString("archive_uid", null)));
-            OnePlusRawRecovery.Storage otaStore = new OnePlusRawRecovery.Storage(ota, vendor);
+            check(RawNciCodec.decodeConfiguration(ota.getString("archive_configuration", "")).get(0x58)[0] == 0x74);
             expectFailure(() -> otaStore.archiveAndRelease(old, config, "another build"));
             check(vendor.getBoolean("pending", false));
             otaStore.archiveAndRelease(old, config, current);
@@ -93,6 +96,7 @@ final class OnePlusRawRecoveryChecks {
             check(!otaStore.archived() && !otaStore.pending());
             check(firmware.equals(raw.getString("archive_firmware", null)));
             check("08000000".equals(raw.getString("archive_uid", null)));
+            check(RawNciCodec.decodeConfiguration(raw.getString("archive_configuration", "")).get(0x58)[0] == 0x41);
         } finally {
             context.deleteSharedPreferences(name);
             context.deleteSharedPreferences(name + "_vendor");

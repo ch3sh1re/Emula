@@ -6,16 +6,36 @@ import android.os.Build;
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/** Handles pending vendor recovery for the supported Android 17 NFC service. */
+/** Checks inactive OnePlus vendor records without replaying them across a system update. */
 final class OnePlusAndroidRecovery {
+    private static final Pattern STOCK_BUILD = Pattern.compile(
+            "OnePlus/([^/:\\s]+)/([^/:\\s]+):(16|17)/[^/:\\s]+/[^/:\\s]+:user/release-keys");
+
     private OnePlusAndroidRecovery() {}
 
-    // Old snapshots contain only a fingerprint. Build the complete source identity
-    // using this device's product so regional products are never interchanged.
-    static boolean fromReviewedAndroid16(String saved, String product) {
-        return product != null && !product.isEmpty() && ("OnePlus/" + product
-                + "/OP611FL1:16/BP2A.250605.015/B.R4T3.1abf132_aeee51_aea830:user/release-keys").equals(saved);
+    static boolean onePlusAndroid17(int sdk, String manufacturer) {
+        return sdk == 37 && "OnePlus".equalsIgnoreCase(manufacturer);
+    }
+
+    // Old app-private snapshots contain only the CDD fingerprint. Check both builds
+    // against the running product and device, without tying them to an OTA sequence number.
+    static boolean updatedFrom16(String saved, String current, String product, String device) {
+        return product != null && device != null && current != null
+                && current.startsWith("OnePlus/" + product + "/" + device + ":17/")
+                && sameDeviceUpdate(saved, current);
+    }
+
+    static boolean sameDeviceUpdate(String saved, String current) {
+        if (saved == null || current == null) return false;
+        Matcher before = STOCK_BUILD.matcher(saved);
+        Matcher after = STOCK_BUILD.matcher(current);
+        return before.matches() && after.matches()
+                && "16".equals(before.group(3)) && "17".equals(after.group(3))
+                && before.group(1).equals(after.group(1)) && before.group(2).equals(after.group(2));
     }
 
     static boolean reviewedStack(Context context) {
@@ -31,24 +51,26 @@ final class OnePlusAndroidRecovery {
                 || StPhoneNfcController.hasPendingRestore(context) || HonorStNfcController.hasPendingRestore(context);
     }
 
-    static boolean eligible(boolean forced, boolean reviewed, boolean blocked, boolean androidApi,
-            OnePlusVendorNfcController.Snapshot saved, boolean rawPending, boolean otherPending,
-            String currentFirmware, String product) {
-        return !forced && reviewed && blocked && androidApi && !rawPending && !otherPending
-                && currentFirmware != null && !currentFirmware.isEmpty() && saved != null && "0".equals(saved.mode)
-                && (currentFirmware.equals(saved.fingerprint) || fromReviewedAndroid16(saved.fingerprint, product));
+    static boolean eligible(boolean forced, OnePlusVendorNfcController.Snapshot saved,
+            boolean rawPending, boolean otherPending, String current, String product, String device,
+            BooleanSupplier sameBuildAndroidRoute) {
+        if (forced || rawPending || otherPending || saved == null || !"0".equals(saved.mode)
+                || current == null || current.isEmpty()) return false;
+        if (current.equals(saved.fingerprint)) return sameBuildAndroidRoute.getAsBoolean();
+        return updatedFrom16(saved.fingerprint, current, product, device);
     }
 
     static boolean selected(Context context) {
-        if (!reviewedStack(context)) return false;
+        if (!onePlusAndroid17(Build.VERSION.SDK_INT, Build.MANUFACTURER)) return false;
         try {
+            OnePlusVendorNfcController.Snapshot saved = OnePlusVendorNfcController.loadSnapshot(context);
+            if (saved == null) return false;
             return eligible(context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-                            .getBoolean("force_raw_mode", false), true,
-                    OnePlusVendorNfcController.isPermissionBlocked(context),
-                    OemNfcController.inspectCapabilities(context).androidOemExtension,
-                    OnePlusVendorNfcController.loadSnapshot(context),
+                            .getBoolean("force_raw_mode", false), saved,
                     OnePlusRawRecovery.hasPendingRestore(context), otherPending(context),
-                    Build.FINGERPRINT, Build.PRODUCT);
+                    Build.FINGERPRINT, Build.PRODUCT, Build.DEVICE, () -> reviewedStack(context)
+                            && OnePlusVendorNfcController.isPermissionBlocked(context)
+                            && OemNfcController.inspectCapabilities(context).androidOemExtension);
         } catch (RuntimeException unreadable) { return false; }
     }
 
@@ -66,14 +88,14 @@ final class OnePlusAndroidRecovery {
     }
 
     static String updateSummary(Context context) {
-        if (!reviewedStack(context)) return "";
+        if (!onePlusAndroid17(Build.VERSION.SDK_INT, Build.MANUFACTURER)) return "";
         SharedPreferences archive = updateArchive(context);
         try {
             if (!Build.FINGERPRINT.equals(archive.getString("archive_observed_firmware", null))) return "";
-            return "\nOnePlus Android OEM recovery archive: " + archive.getString("archive_firmware", "")
+            return "\nOnePlus vendor recovery archive: " + archive.getString("archive_firmware", "")
                     + "\nObserved on: " + Build.FINGERPRINT + "\n";
         } catch (ClassCastException unreadable) {
-            return "\nOnePlus Android OEM recovery archive: unreadable\n";
+            return "\nOnePlus vendor recovery archive: unreadable\n";
         }
     }
 

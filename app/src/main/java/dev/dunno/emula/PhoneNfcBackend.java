@@ -186,7 +186,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         if (OnePlusAndroidRecovery.selected(context)) {
             requireReady();
             OnePlusAndroidRecovery.prepare(context);
-            // No setter at migration. The next card action uses the existing Android API.
+            // Archiving sends no NFC writes. The next card action selects its normal route.
             return true;
         }
         boolean vendorPending = StPhoneNfcController.hasPendingRestore(context)
