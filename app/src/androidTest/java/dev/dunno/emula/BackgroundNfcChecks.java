@@ -86,20 +86,22 @@ final class BackgroundNfcChecks {
                 app.registerActivityLifecycleCallbacks(callbacks);
             });
             PhoneNfcRuntime runtime = installed.get();
-            Activity foreground = new Activity();
+            AtomicReference<Activity> foreground = new AtomicReference<>();
             test.runOnMainSync(() -> {
+                Activity activity = new Activity();
+                foreground.set(activity);
                 backend.flagOnly = true;
                 PhoneNfcRuntime.adapterOn();
                 check(!runtime.isBusy(), "NFC ready in background must not start recovery");
-                runtime.pollingUi.attach(foreground);
-                runtime.resumeUi(foreground);
+                runtime.pollingUi.attach(activity);
+                runtime.resumeUi(activity);
                 PhoneNfcRuntime.adapterOn();
                 PhoneNfcRuntime.adapterOn();
             });
             await(test, () -> !runtime.isBusy(), "Foreground NFC ready check");
             check(backend.bootChecks == 1 && backend.restores == 0 && backend.writes == 0,
                     "NFC ready must reconcile only the eligible record, once");
-            test.runOnMainSync(() -> runtime.pollingUi.detach(foreground));
+            test.runOnMainSync(() -> runtime.pollingUi.detach(foreground.get()));
             context.startActivity(QuickAccess.launcherIntent(context, first.id));
             await(test, () -> first.id.equals(backend.active) && !runtime.isBusy(), "Router activation");
             check(routerOpened.get() == 1 && mainOpened.get() == 0, "Activation must not open MainActivity");
