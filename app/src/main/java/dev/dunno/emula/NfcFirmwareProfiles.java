@@ -26,6 +26,9 @@ final class NfcFirmwareProfiles {
             source = "OnePlus 11 CPH2447 India 16.0.5.1301(EX01) / NfcNci";
             finding = "The service forwards raw configuration requests to the device host. "
                     + "For a failed startup restore, check the controller response in LAST NFC OPERATION.";
+        } else if ("60046a4fec2325a27f30de731fbbe713e943acbb9cb5cf37a07fd59290dbc3ca".equals(sha256)) {
+            source = "OnePlus 15 CPH2747 17.0.1.201(EX01) / NfcNci";
+            finding = androidOemReadback();
         } else if ("f23dfaf598ba23e20c67f09518b019fd8ea593e0659ca01b24beb20f625e5985".equals(sha256)) {
             source = "OnePlus 12 CPH2573 India 17.0.0.100(EX01) / NfcNci";
             finding = androidOemReadback();

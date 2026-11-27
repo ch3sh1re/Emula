@@ -15,6 +15,7 @@ final class OnePlusRawRecoveryChecks {
         String name = "oneplus_recovery_test_" + UUID.randomUUID();
         SharedPreferences raw = context.getSharedPreferences(name, Context.MODE_PRIVATE);
         SharedPreferences vendor = context.getSharedPreferences(name + "_vendor", Context.MODE_PRIVATE);
+        SharedPreferences ota = context.getSharedPreferences(name + "_ota", Context.MODE_PRIVATE);
         try {
             String firmware = OnePlusRawRecovery.FIRMWARE;
             check(vendor.edit().putBoolean("pending", true).putInt("version", 1)
@@ -67,9 +68,35 @@ final class OnePlusRawRecoveryChecks {
             expectFailure(() -> reopened.archiveAndRelease(changed, config));
             check(vendor.getBoolean("pending", false));
             check(raw.getString("archive_uid", "").equals("08000000"));
+
+            // A pending snapshot from an earlier OS lives in the Android OEM archive only.
+            final String previous = "OnePlus/CPH2747/OP611FL1:16/BP2A.250605.015/"
+                    + "B.R4T3.1abf132_aeee51_aea830:user/release-keys";
+            final String current = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/"
+                    + "B.R4T3.50a3663-29f0eba-29fce1c:user/release-keys";
+            check(vendor.edit().putString("fingerprint", previous).commit());
+            OnePlusVendorNfcController.Snapshot old = OnePlusVendorNfcController.loadSnapshot(vendor);
+            expectFailure(() -> new OnePlusRawRecovery.Storage(failFirstCommit(ota), vendor)
+                    .archiveAndRelease(old, config, current));
+            check(vendor.getBoolean("pending", false));
+            expectFailure(() -> new OnePlusRawRecovery.Storage(ota, failFirstCommit(vendor))
+                    .archiveAndRelease(old, config, current));
+            check(vendor.getBoolean("pending", false));
+            check(previous.equals(ota.getString("archive_firmware", null)));
+            check(current.equals(ota.getString("archive_observed_firmware", null)));
+            check(old.uid.equals(ota.getString("archive_uid", null)));
+            OnePlusRawRecovery.Storage otaStore = new OnePlusRawRecovery.Storage(ota, vendor);
+            expectFailure(() -> otaStore.archiveAndRelease(old, config, "another build"));
+            check(vendor.getBoolean("pending", false));
+            otaStore.archiveAndRelease(old, config, current);
+            check(!vendor.getBoolean("pending", true));
+            check(!otaStore.archived() && !otaStore.pending());
+            check(firmware.equals(raw.getString("archive_firmware", null)));
+            check("08000000".equals(raw.getString("archive_uid", null)));
         } finally {
             context.deleteSharedPreferences(name);
             context.deleteSharedPreferences(name + "_vendor");
+            context.deleteSharedPreferences(name + "_ota");
         }
     }
 

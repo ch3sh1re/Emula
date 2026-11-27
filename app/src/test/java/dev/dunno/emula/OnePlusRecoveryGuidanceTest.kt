@@ -9,7 +9,7 @@ class OnePlusRecoveryGuidanceTest {
     private fun state(forced: Boolean = false, target: Boolean = true, blocked: Boolean = true,
                       snapshot: OnePlusVendorNfcController.Snapshot? = saved, archive: Boolean = false,
                       pending: Boolean = false, other: Boolean = false, reviewed: Boolean = false) =
-        OnePlusRecoveryGuidance.status(forced, target, blocked, snapshot, archive, pending, other, reviewed)
+        OnePlusRecoveryGuidance.status(forced, target, blocked, snapshot, archive, pending, other, reviewed, "CPH2747")
 
     @Test fun reviewedAndroidServiceOffersNormalModeAndPreservesRestorePrecedence() {
         assertEquals(OnePlusRecoveryGuidance.Status.ANDROID_OEM_PENDING_CHECKS, state(reviewed = true))

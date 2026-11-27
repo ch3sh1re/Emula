@@ -78,7 +78,16 @@ final class OnePlusRawRecovery {
 
     /** The reviewed Android path uses the same read-only checks and durable archive. */
     static void prepare(Platform platform, boolean androidOem) throws Exception {
-        if (!platform.allowed()) throw new IllegalStateException("OnePlus raw recovery firmware/access changed");
+        prepare(platform, androidOem, FIRMWARE, FIRMWARE);
+    }
+
+    static void prepareForAndroid(Platform platform, String sourceFirmware, String currentFirmware) throws Exception {
+        prepare(platform, true, sourceFirmware, currentFirmware);
+    }
+
+    private static void prepare(Platform platform, boolean androidOem, String sourceFirmware,
+            String currentFirmware) throws Exception {
+        if (!platform.allowed()) throw new IllegalStateException("OnePlus recovery firmware/access changed");
         OnePlusVendorNfcController.Snapshot saved = platform.vendorSnapshot();
         if (saved == null) return;
         OemOperationReport report = new OemOperationReport(OemOperationReport.Operation.STARTUP_RESTORE);
@@ -86,24 +95,33 @@ final class OnePlusRawRecovery {
         report.stage = "CHECK_DISABLED_VENDOR_STATE";
         report.snapshotState = "RESTORE_PENDING";
         report.originalGuardMode = saved.mode;
+        if (!Objects.equals(sourceFirmware, currentFirmware)) {
+            report.notes.add("Snapshot firmware: " + saved.fingerprint);
+            report.notes.add("Observed firmware: " + currentFirmware);
+        }
         OemNfcController.recordOperation(report);
         try {
-            if (!"0".equals(saved.mode) || !FIRMWARE.equals(saved.fingerprint)
-                    || !same(saved, platform.settings())) {
+            if (sourceFirmware == null || currentFirmware == null || !"0".equals(saved.mode)
+                    || !sourceFirmware.equals(saved.fingerprint)) {
+                throw new IllegalStateException("Original OnePlus recovery record changed");
+            }
+            OnePlusVendorNfcController.Snapshot live = platform.settings();
+            if (!sameMetadata(saved, live) || !currentFirmware.equals(live.fingerprint)) {
                 throw new IllegalStateException("Original OnePlus settings differ; vendor recovery retained");
             }
             Map<Integer, byte[]> current = platform.read();
             if (!reportedIdleConfiguration(current)) {
                 throw new IllegalStateException("NFC is not in the reported system-managed state; recovery retained");
             }
-            if (!platform.allowed() || !same(saved, platform.settings())
+            if (!platform.allowed() || !same(live, platform.settings())
                     || !same(saved, platform.vendorSnapshot())) {
                 throw new IllegalStateException("OnePlus state changed during the check; recovery retained");
             }
             report.stage = "ARCHIVE_DISABLED_VENDOR_STATE";
             platform.archiveAndRelease(saved, copy(current));
             report.stage = "COMPLETE";
-            report.result = androidOem ? "ARCHIVED_FOR_ANDROID_OEM" : "ARCHIVED_FOR_EXPLICIT_RAW_TRIAL";
+            if (!sourceFirmware.equals(currentFirmware)) report.result = "ARCHIVED_AFTER_SYSTEM_UPDATE";
+            else report.result = androidOem ? "ARCHIVED_FOR_ANDROID_OEM" : "ARCHIVED_FOR_EXPLICIT_RAW_TRIAL";
             report.snapshotState = "ARCHIVED";
             report.notes.add(androidOem
                     ? "Reviewed Android OEM route selected. Original vendor record retained; matching metadata "
@@ -190,9 +208,13 @@ final class OnePlusRawRecovery {
     }
 
     static boolean same(OnePlusVendorNfcController.Snapshot a, OnePlusVendorNfcController.Snapshot b) {
+        return sameMetadata(a, b) && Objects.equals(a.fingerprint, b.fingerprint);
+    }
+
+    static boolean sameMetadata(OnePlusVendorNfcController.Snapshot a, OnePlusVendorNfcController.Snapshot b) {
         return a != null && b != null && Objects.equals(a.mode, b.mode)
                 && Objects.equals(a.atqa, b.atqa) && Objects.equals(a.sak, b.sak)
-                && Objects.equals(a.uid, b.uid) && Objects.equals(a.fingerprint, b.fingerprint);
+                && Objects.equals(a.uid, b.uid);
     }
 
     static boolean reportedIdleConfiguration(Map<Integer, byte[]> config) {
@@ -235,6 +257,7 @@ final class OnePlusRawRecovery {
         boolean archived() {
             try {
                 return FIRMWARE.equals(prefs.getString("archive_firmware", null))
+                        && FIRMWARE.equals(prefs.getString("archive_observed_firmware", FIRMWARE))
                         && "0".equals(prefs.getString("archive_mode", null))
                         && reportedIdleConfiguration(RawNciCodec.decodeConfiguration(
                                 prefs.getString("archive_configuration", "")));
@@ -266,26 +289,35 @@ final class OnePlusRawRecovery {
             }
         }
         void archiveAndRelease(OnePlusVendorNfcController.Snapshot saved, Map<Integer, byte[]> current) {
-            if (!"0".equals(saved.mode) || !FIRMWARE.equals(saved.fingerprint)
+            if (!FIRMWARE.equals(saved.fingerprint)) throw new IllegalStateException("OnePlus raw archive firmware mismatch");
+            archiveAndRelease(saved, current, FIRMWARE);
+        }
+
+        void archiveAndRelease(OnePlusVendorNfcController.Snapshot saved, Map<Integer, byte[]> current,
+                String observedFirmware) {
+            if (!"0".equals(saved.mode) || saved.fingerprint == null || observedFirmware == null
                     || !reportedIdleConfiguration(current)) {
-                throw new IllegalStateException("Invalid OnePlus raw recovery archive");
+                throw new IllegalStateException("Invalid OnePlus recovery archive");
             }
             if (!same(saved, OnePlusVendorNfcController.loadSnapshot(vendor))) {
                 throw new IllegalStateException("OnePlus vendor snapshot changed");
             }
-            if (archived()) {
+            if (prefs.contains("archive_firmware")) {
                 OnePlusVendorNfcController.Snapshot archived = new OnePlusVendorNfcController.Snapshot(
                         prefs.getString("archive_mode", null), prefs.getString("archive_atqa", null),
                         prefs.getString("archive_sak", null), prefs.getString("archive_uid", null),
                         prefs.getString("archive_firmware", null));
-                if (!same(saved, archived) || !RawNciCodec.encodeConfiguration(current)
+                // Original same-firmware archives predate the observed-firmware field.
+                if (!same(saved, archived) || !observedFirmware.equals(prefs.getString(
+                        "archive_observed_firmware", archived.fingerprint)) || !RawNciCodec.encodeConfiguration(current)
                         .equals(prefs.getString("archive_configuration", null))) {
                     throw new IllegalStateException("An older OnePlus recovery archive is retained");
                 }
-            } else if (prefs.contains("archive_firmware")) {
+            } else if (prefs.contains("archive_observed_firmware") || prefs.contains("archive_configuration")) {
                 throw new IllegalStateException("An unreadable OnePlus recovery archive is retained");
             }
             if (!prefs.edit().putString("archive_firmware", saved.fingerprint)
+                    .putString("archive_observed_firmware", observedFirmware)
                     .putString("archive_mode", saved.mode).putString("archive_atqa", saved.atqa)
                     .putString("archive_sak", saved.sak).putString("archive_uid", saved.uid)
                     .putString("archive_configuration", RawNciCodec.encodeConfiguration(current))
@@ -314,7 +346,7 @@ final class OnePlusRawRecovery {
             this.context = context; this.pollingContext = pollingContext; store = storage(context);
             this.androidOem = androidOem;
         }
-        public boolean allowed() { return isTarget() && (!androidOem || OnePlusAndroidRecovery.selected(context)); }
+        public boolean allowed() { return androidOem ? OnePlusAndroidRecovery.selected(context) : isTarget(); }
         public boolean acceptsAndroidDisabledIdle() {
             return store.archived() && OnePlusAndroidRecovery.reviewedStack(context);
         }
@@ -322,7 +354,13 @@ final class OnePlusRawRecovery {
         public OnePlusVendorNfcController.Snapshot settings() { return OnePlusVendorNfcController.currentSnapshot(context); }
         public Map<Integer, byte[]> read() throws Exception { return LegacyNfcDiagnostics.runReadOnlyProbe(context).configuration; }
         public void archiveAndRelease(OnePlusVendorNfcController.Snapshot original, Map<Integer, byte[]> accepted) {
-            store.archiveAndRelease(original, accepted);
+            if (androidOem && (!FIRMWARE.equals(original.fingerprint) || !FIRMWARE.equals(Build.FINGERPRINT))) {
+                // An observation made after an OTA is never a baseline for the raw trial.
+                new Storage(OnePlusAndroidRecovery.updateArchive(context), store.vendor)
+                        .archiveAndRelease(original, accepted, Build.FINGERPRINT);
+            } else {
+                store.archiveAndRelease(original, accepted);
+            }
         }
         public Map<Integer, byte[]> pending() { return store.load(); }
         public void save(Map<Integer, byte[]> original) { store.save(original); }

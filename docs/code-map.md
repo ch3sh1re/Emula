@@ -10,6 +10,7 @@
 | `PhoneNfcBackend`, `NfcActivationPolicy`, `RawNfcDeviceCatalog` | Firmware capabilities, activation path selection, saved originals and startup recovery. |
 | `OemNfcController`, `LegacyNfcController` | OEM configuration, raw operations, controller readback and restoration. Device-specific recovery and vendor controllers live alongside these classes. |
 | `StPhoneNfcController`, `StVendorSdk`, `StHceProfile` | Select the Fairphone 5 and Redmi sapphiren ST service, capture its HCE profile and verify the fields restored by the shared ST transaction. |
+| `OnePlusAndroidRecovery`, `OnePlusRawRecovery` | On reviewed OnePlus 15 NFC services, compare saved vendor metadata with live settings and controller readback. An archive from a system update is kept separately from Raw mode recovery. |
 | `NfcDiagnosticAssessment`, `NfcStackDiagnostics`, `LegacyNfcDiagnostics`, `RawOperationReport`, `OemOperationReport` | Interpret prerequisites and retain separate evidence for activation, recovery and the current read-only probe. |
 | `DiagnosticsEmail`, `CardTransfer`, `CardCsv` | Sharing diagnostics and importing or exporting cards. |
 

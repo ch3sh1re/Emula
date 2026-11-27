@@ -31,8 +31,8 @@ android {
         applicationId = "dev.dunno.emula"
         minSdk = 35
         targetSdk = 36
-        versionCode = 61
-        versionName = "1.0.41"
+        versionCode = 62
+        versionName = "1.0.42"
         buildConfigField("boolean", "MOTOROLA_ST_EXPERIMENT", "false")
         buildConfigField("boolean", "MOTOROLA_ST_RAW_COMPATIBILITY", "true")
         testInstrumentationRunner = "dev.dunno.emula.UidEditorTestInstrumentation"

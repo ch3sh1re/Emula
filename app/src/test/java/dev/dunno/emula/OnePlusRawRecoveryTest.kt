@@ -275,6 +275,33 @@ class OnePlusRawRecoveryTest {
         assertEquals("OEM_ACTIVATION_NOT_ESTABLISHED", NfcDiagnosticAssessment.assessOem(report, true).code)
     }
 
+    @Test fun otaArchivesTheAndroid16RecordUsingOnlyLiveAndroid17Reads() {
+        val old = "OnePlus/CPH2747/OP611FL1:16/BP2A.250605.015/B.R4T3.1abf132_aeee51_aea830:user/release-keys"
+        val current = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/B.R4T3.50a3663-29f0eba-29fce1c:user/release-keys"
+        val pending = OnePlusVendorNfcController.Snapshot("0", "0400", "20", null, old)
+        fun device() = Device().apply {
+            vendor = pending
+            globals = OnePlusVendorNfcController.Snapshot("0", "0400", "20", null, current)
+        }
+        val good = device()
+        OnePlusRawRecovery.prepareForAndroid(good, old, current)
+        assertSame(pending, good.archive)
+        assertNull(good.vendor)
+        assertNull(good.original)
+        assertEquals(listOf("read", "archive"), good.events)
+        assertEquals("ARCHIVED_AFTER_SYSTEM_UPDATE", OemNfcController.getLastOperationReport().result)
+        for (bad in listOf(device().apply { changeSettingsDuringRead = true },
+            device().apply { configuration[0x33] = byteArrayOf(1, 2, 3, 4) },
+            device().apply { configuration.remove(0x59) }, device().apply { archiveFails = true },
+            device().apply { globals = pending },
+            device().apply { globals = OnePlusVendorNfcController.Snapshot("0", "0400", "20", "01020304", current) })) {
+            assertThrows(IllegalStateException::class.java) { OnePlusRawRecovery.prepareForAndroid(bad, old, current) }
+            assertSame(pending, bad.vendor)
+            assertNull(bad.archive)
+            assertFalse("activate" in bad.events || "restore" in bad.events)
+        }
+    }
+
     @Test fun androidMigrationRetainsRecoveryOnLostEligibilityOrFailedArchive() {
         for (permitted in listOf(true, false)) {
             val device = Device().apply { this.permitted = permitted; archiveFails = true }
