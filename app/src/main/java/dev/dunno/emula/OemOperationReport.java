@@ -19,6 +19,7 @@ final class OemOperationReport {
         ONEPLUS_VENDOR_HCE,
         MOTOROLA_ST_VENDOR_HCE,
         HONOR_ST_VENDOR_HCE,
+        ST_VENDOR_HCE,
         XIAOMI_NXP_TRANSIT
     }
 
@@ -154,9 +155,9 @@ final class OemOperationReport {
             }
         }
 
-        if (path == Path.MOTOROLA_ST_VENDOR_HCE || path == Path.HONOR_ST_VENDOR_HCE) {
-            text.append('\n').append(path == Path.HONOR_ST_VENDOR_HCE
-                    ? "HONOR ST VENDOR HCE\n" : "MOTOROLA ST VENDOR HCE\n");
+        if (path == Path.MOTOROLA_ST_VENDOR_HCE || path == Path.HONOR_ST_VENDOR_HCE
+                || path == Path.ST_VENDOR_HCE) {
+            text.append('\n').append(path.name().replace('_', ' ')).append('\n');
             append(text, "Snapshot", snapshotState);
             append(text, "Vendor call returned (void)", outcome(vendorCallSucceeded));
             append(text, "External reader", "not verified by this report");

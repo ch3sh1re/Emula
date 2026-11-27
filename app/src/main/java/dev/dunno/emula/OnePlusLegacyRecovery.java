@@ -137,13 +137,18 @@ final class OnePlusLegacyRecovery {
         }
         report.stage = "CHECK_AFTER_RESTART";
         report.result = "POST_BOOT_READ_UNVERIFIED";
-        Map<Integer, byte[]> values = probe.read();
-        for (int i = 0; i < OBSERVED_PARAMETERS.length; i++) {
-            if (values == null || !Arrays.equals(REPORTED_VALUES[i], values.get(OBSERVED_PARAMETERS[i]))) {
-                report.result = "POST_BOOT_PROFILE_MISMATCH";
-                throw new IllegalStateException("NFC settings after restart differ from the reviewed profile. "
-                        + "The recovery record was kept.");
-            }
+        if (!matchesPostBootProfile(probe.read())) {
+            report.result = "POST_BOOT_PROFILE_MISMATCH";
+            throw new IllegalStateException("NFC settings after restart differ from the reviewed profile. "
+                    + "The recovery record was kept.");
         }
+    }
+
+    static boolean matchesPostBootProfile(Map<Integer, byte[]> values) {
+        if (values == null) return false;
+        for (int i = 0; i < OBSERVED_PARAMETERS.length; i++) {
+            if (!Arrays.equals(REPORTED_VALUES[i], values.get(OBSERVED_PARAMETERS[i]))) return false;
+        }
+        return true;
     }
 }

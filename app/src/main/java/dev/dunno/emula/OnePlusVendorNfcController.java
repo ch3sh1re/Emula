@@ -3,6 +3,7 @@ package dev.dunno.emula;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
@@ -69,8 +70,28 @@ final class OnePlusVendorNfcController {
     }
 
     static boolean isPermissionBlocked(Context context) {
-        return isPermissionBlocked(Build.FINGERPRINT,
-                context.checkSelfPermission(SAFE_NFC_PERMISSION) == PackageManager.PERMISSION_GRANTED);
+        boolean granted = context.checkSelfPermission(SAFE_NFC_PERMISSION) == PackageManager.PERMISSION_GRANTED;
+        return !granted && (isPermissionBlocked(Build.FINGERPRINT, false) || reviewedAndroidService(context));
+    }
+
+    static boolean reviewedAndroidPhone(int sdk, String manufacturer, String model, String device) {
+        return sdk == 37 && "OnePlus".equalsIgnoreCase(manufacturer)
+                && "CPH2747".equalsIgnoreCase(model) && "OP611FL1".equalsIgnoreCase(device);
+    }
+
+    static boolean matchesAndroidService(long code, String name) {
+        return (code == 170000014L && "17.0.0.260114".equals(name))
+                || (code == 170000015L && "17.0.0.260904".equals(name));
+    }
+
+    static boolean reviewedAndroidService(Context context) {
+        if (!reviewedAndroidPhone(Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.MODEL, Build.DEVICE)) return false;
+        try {
+            PackageInfo info = context.getPackageManager().getPackageInfo("com.android.nfc", 0);
+            return matchesAndroidService(info.getLongVersionCode(), info.versionName);
+        } catch (PackageManager.NameNotFoundException | RuntimeException unavailable) {
+            return false;
+        }
     }
 
     static boolean isPermissionBlocked(String fingerprint, boolean permissionGranted) {

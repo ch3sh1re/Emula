@@ -9,6 +9,7 @@ class NfcFirmwareProfilesTest {
         assertTrue(restore.contains("CPH2447"))
         assertTrue(restore.contains("startup restore"))
         for ((hash, source) in mapOf(
+            "60046a4fec2325a27f30de731fbbe713e943acbb9cb5cf37a07fd59290dbc3ca" to "CPH2747 17.0.1.201",
             "f23dfaf598ba23e20c67f09518b019fd8ea593e0659ca01b24beb20f625e5985" to "CPH2573",
             "98f4b26ef2dbf8b33edb17cca5400dd2061cbe907f3fd2ae2443584ff14a423b" to "astonc 20261113"
         )) {

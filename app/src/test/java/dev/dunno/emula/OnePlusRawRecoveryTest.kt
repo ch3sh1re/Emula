@@ -42,7 +42,8 @@ class OnePlusRawRecoveryTest {
             events.add("archive")
             if (archiveFails) throw IllegalStateException("archive failed")
             archive = original
-            assertTrue(OnePlusRawRecovery.reportedIdleConfiguration(accepted))
+            assertEquals(configuration.keys, accepted.keys)
+            for ((id, value) in configuration) assertArrayEquals(value, accepted[id])
             vendor = null
         }
         override fun pending() = original
@@ -275,6 +276,33 @@ class OnePlusRawRecoveryTest {
         assertEquals("OEM_ACTIVATION_NOT_ESTABLISHED", NfcDiagnosticAssessment.assessOem(report, true).code)
     }
 
+    @Test fun otaArchivesTheAndroid16RecordUsingOnlyLiveAndroid17Reads() {
+        val old = "OnePlus/CPH2747/OP611FL1:16/BP2A.250605.015/B.R4T3.1abf132_aeee51_aea830:user/release-keys"
+        val current = "OnePlus/CPH2747/OP611FL1:17/CP2A.260605.016/B.R4T3.50a3663-29f0eba-29fce1c:user/release-keys"
+        val pending = OnePlusVendorNfcController.Snapshot("0", "0400", "20", null, old)
+        fun device() = Device().apply {
+            vendor = pending
+            globals = OnePlusVendorNfcController.Snapshot("0", "0400", "20", null, current)
+        }
+        val good = device()
+        OnePlusRawRecovery.prepareForAndroid(good, old, current)
+        assertSame(pending, good.archive)
+        assertNull(good.vendor)
+        assertNull(good.original)
+        assertEquals(listOf("read", "archive"), good.events)
+        assertEquals("ARCHIVED_AFTER_SYSTEM_UPDATE", OemNfcController.getLastOperationReport().result)
+        for (bad in listOf(device().apply { changeSettingsDuringRead = true },
+            device().apply { configuration[0x33] = byteArrayOf(1, 2, 3, 4) },
+            device().apply { configuration.remove(0x59) }, device().apply { archiveFails = true },
+            device().apply { globals = pending },
+            device().apply { globals = OnePlusVendorNfcController.Snapshot("0", "0400", "20", "01020304", current) })) {
+            assertThrows(IllegalStateException::class.java) { OnePlusRawRecovery.prepareForAndroid(bad, old, current) }
+            assertSame(pending, bad.vendor)
+            assertNull(bad.archive)
+            assertFalse("activate" in bad.events || "restore" in bad.events)
+        }
+    }
+
     @Test fun androidMigrationRetainsRecoveryOnLostEligibilityOrFailedArchive() {
         for (permitted in listOf(true, false)) {
             val device = Device().apply { this.permitted = permitted; archiveFails = true }
@@ -282,6 +310,43 @@ class OnePlusRawRecoveryTest {
             assertSame(saved, device.vendor)
             assertNull(device.archive)
             assertFalse(device.events.contains("activate"))
+        }
+    }
+
+    @Test fun anOtaCanArchiveEitherCompleteIdleProfileWithoutEnablingTheRawTrial() {
+        val source = "OnePlus/CPH2707IN/OP6131L1:16/old.id/other.patch:user/release-keys"
+        val current = "OnePlus/CPH2707IN/OP6131L1:17/new.id/new.patch:user/release-keys"
+        val pending = OnePlusVendorNfcController.Snapshot("0", null, null, null, source)
+        fun device(tb1: Byte) = Device().apply {
+            vendor = pending
+            globals = OnePlusVendorNfcController.Snapshot("0", null, null, null, current)
+            configuration[0x58] = byteArrayOf(tb1)
+        }
+        for (tb1 in byteArrayOf(0x41, 0x74)) {
+            val good = device(tb1)
+            OnePlusRawRecovery.prepareForAndroid(good, source, current)
+            assertSame(pending, good.archive)
+            assertNull(good.vendor)
+            assertNull(good.original)
+            assertEquals(listOf("read", "archive"), good.events)
+            for (id in good.configuration.keys) {
+                val bad = device(tb1).apply { configuration[id] = byteArrayOf(0x7F) }
+                assertThrows(IllegalStateException::class.java) { OnePlusRawRecovery.prepareForAndroid(bad, source, current) }
+                assertSame(pending, bad.vendor)
+                assertEquals(listOf("read"), bad.events)
+            }
+        }
+        // 00 was observed after an explicit Android disable, not as an OTA startup profile.
+        for (tb1 in byteArrayOf(0x00, 0x40, 0x70)) {
+            val unknown = device(tb1)
+            assertThrows(IllegalStateException::class.java) { OnePlusRawRecovery.prepareForAndroid(unknown, source, current) }
+            assertSame(pending, unknown.vendor)
+        }
+        for (androidOem in listOf(true, false)) {
+            val sameBuild = Device().apply { configuration[0x58] = byteArrayOf(0x74) }
+            assertThrows(IllegalStateException::class.java) { OnePlusRawRecovery.prepare(sameBuild, androidOem) }
+            assertSame(saved, sameBuild.vendor)
+            assertFalse(OnePlusRawRecovery.rawIdleConfiguration(sameBuild.configuration, true))
         }
     }
 

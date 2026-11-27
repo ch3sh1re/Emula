@@ -7,18 +7,21 @@ import android.content.pm.PackageManager;
 final class OnePlusRecoveryGuidance {
     enum Status { NOT_TARGETED, NOT_ELIGIBLE, SNAPSHOT_UNREADABLE, RAW_RESTORE_PENDING,
         OTHER_RESTORE_PENDING, RAW_MODE_REQUIRED, SELECTED_PENDING_CHECKS,
-        ANDROID_OEM_PENDING_CHECKS, ANDROID_OEM_READY }
+        ANDROID_OEM_PENDING_CHECKS, ANDROID_OEM_READY, SYSTEM_UPDATE_PENDING_CHECKS }
 
     private OnePlusRecoveryGuidance() {}
 
     static Status status(boolean forced, boolean target, boolean blocked,
             OnePlusVendorNfcController.Snapshot saved, boolean archived,
-            boolean rawPending, boolean otherPending, boolean reviewedAndroidApi) {
+            boolean rawPending, boolean otherPending, boolean reviewedAndroidApi, String product, String device) {
         if (!target) return Status.NOT_TARGETED;
         if (rawPending) return Status.RAW_RESTORE_PENDING;
         if (otherPending) return Status.OTHER_RESTORE_PENDING;
-        if (OnePlusAndroidRecovery.eligible(forced, target, blocked, reviewedAndroidApi,
-                saved, false, false)) return Status.ANDROID_OEM_PENDING_CHECKS;
+        if (OnePlusAndroidRecovery.eligible(forced, saved, false, false, OnePlusRawRecovery.FIRMWARE,
+                product, device, () -> blocked && reviewedAndroidApi)) {
+            return OnePlusRawRecovery.FIRMWARE.equals(saved.fingerprint)
+                    ? Status.ANDROID_OEM_PENDING_CHECKS : Status.SYSTEM_UPDATE_PENDING_CHECKS;
+        }
         if (!forced && blocked && reviewedAndroidApi && saved == null) return Status.ANDROID_OEM_READY;
         if (!OnePlusRawRecovery.selectsTrial(true, true, blocked, saved, archived)) return Status.NOT_ELIGIBLE;
         return forced ? Status.SELECTED_PENDING_CHECKS : Status.RAW_MODE_REQUIRED;
@@ -33,7 +36,8 @@ final class OnePlusRecoveryGuidance {
                     OnePlusVendorNfcController.loadSnapshot(context), OnePlusRawRecovery.storage(context).archived(),
                     OnePlusRawRecovery.hasPendingRestore(context), OnePlusAndroidRecovery.otherPending(context),
                     OnePlusAndroidRecovery.reviewedStack(context)
-                            && OemNfcController.inspectCapabilities(context).androidOemExtension);
+                            && OemNfcController.inspectCapabilities(context).androidOemExtension,
+                    android.os.Build.PRODUCT, android.os.Build.DEVICE);
         } catch (RuntimeException invalid) { return Status.SNAPSHOT_UNREADABLE; }
     }
 
@@ -54,7 +58,8 @@ final class OnePlusRecoveryGuidance {
     }
 
     static String describe(Context context, boolean includeGuidance) {
-        StringBuilder text = new StringBuilder(OnePlusRawRecovery.diagnosticSummary(context));
+        StringBuilder text = new StringBuilder(OnePlusRawRecovery.diagnosticSummary(context))
+                .append(OnePlusAndroidRecovery.updateSummary(context));
         if (!OnePlusRawRecovery.isTarget()) return text.toString();
         Status selection = inspect(context);
         text.append("OnePlus recovery selection: ").append(selection)
@@ -65,11 +70,11 @@ final class OnePlusRecoveryGuidance {
         try {
             OnePlusVendorNfcController.Snapshot saved = OnePlusVendorNfcController.loadSnapshot(context);
             text.append(saved == null ? "no pending vendor record"
-                    : OnePlusRawRecovery.same(saved, OnePlusVendorNfcController.currentSnapshot(context))
+                    : OnePlusRawRecovery.sameMetadata(saved, OnePlusVendorNfcController.currentSnapshot(context))
                             ? "match" : "mismatch");
             text.append("\nNormal-mode Android OEM route: ").append(saved == null
                     ? "no pending vendor recovery"
-                    : selection == Status.ANDROID_OEM_PENDING_CHECKS
+                    : selection == Status.ANDROID_OEM_PENDING_CHECKS || selection == Status.SYSTEM_UPDATE_PENDING_CHECKS
                             ? "pending metadata and controller checks"
                             : "deferred by pending OnePlus vendor recovery");
         } catch (RuntimeException unreadable) { text.append("unreadable"); }

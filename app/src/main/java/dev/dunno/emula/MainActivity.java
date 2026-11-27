@@ -1058,17 +1058,17 @@ public final class MainActivity extends Activity {
                 || (rawTrial && LegacyNfcDiagnostics.isRawNciApiAvailable(this));
         if (MotorolaStNfcController.isTargetDevice() || MotorolaStNfcController.isRawModeTarget()
                 || MotorolaStNfcController.hasPendingRestore(this) || HonorStNfcController.isTargetDevice()
-                || HonorStNfcController.hasPendingRestore(this)) {
+                || HonorStNfcController.hasPendingRestore(this) || StPhoneNfcController.targets()) {
             rawAvailable = LegacyNfcDiagnostics.isRawNciApiAvailable(this);
         }
         if (rawAvailable) {
-            boolean rawOnly = !modernApi;
+            boolean rawOnly = !modernApi && !StPhoneNfcController.targets();
             MenuItem rawMode = popup.getMenu().add(
                     Menu.NONE, MENU_RAW_MODE, Menu.NONE, R.string.menu_raw_mode);
             rawMode.setCheckable(true);
             rawMode.setChecked(rawOnly || isRawModeForced());
             rawMode.setEnabled(!rawOnly);
-            if (HonorStNfcController.hasPendingRestore(this)
+            if (StPhoneNfcController.hasPendingRestore(this) || HonorStNfcController.hasPendingRestore(this)
                     || OppoNxpRawController.hasPendingRestore(this)
                     || (OnePlusRawRecovery.isTarget() && CardSession.getActiveCardId() != null)
                     || MotorolaStNfcController.hasPendingRestore(this)

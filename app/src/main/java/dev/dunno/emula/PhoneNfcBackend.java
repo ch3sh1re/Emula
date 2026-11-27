@@ -36,6 +36,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
                 || OnePlusRawRecovery.hasPendingRestore(context)
                 || OnePlusVendorNfcController.hasPendingRestore(context)
                 || XiaomiNfcController.hasPendingRestore(context)
+                || StPhoneNfcController.hasPendingRestore(context)
                 || HonorStNfcController.hasPendingRestore(context);
     }
 
@@ -47,7 +48,10 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
     private NfcActivationPolicy.Path path(boolean activating) { return path(activating, false); }
 
     private NfcActivationPolicy.Path path(boolean activating, boolean confirmedRawFallback) {
-        if (HonorStNfcController.hasPendingRestore(context)
+        // In normal mode a missing ST baseline must end the attempt before any writes.
+        if (StPhoneNfcController.hasPendingRestore(context)
+                || (StPhoneNfcController.targets() && !settings.getBoolean("force_raw_mode", false))
+                || HonorStNfcController.hasPendingRestore(context)
                 || MotorolaStNfcController.hasPendingRestore(context)
                 || OnePlusVendorNfcController.hasPendingRestore(context)) {
             return NfcActivationPolicy.Path.OEM;
@@ -182,10 +186,11 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         if (OnePlusAndroidRecovery.selected(context)) {
             requireReady();
             OnePlusAndroidRecovery.prepare(context);
-            // No setter at migration. The next card action uses the existing Android API.
+            // Archiving sends no NFC writes. The next card action selects its normal route.
             return true;
         }
-        boolean vendorPending = OnePlusVendorNfcController.hasPendingRestore(context)
+        boolean vendorPending = StPhoneNfcController.hasPendingRestore(context)
+                || OnePlusVendorNfcController.hasPendingRestore(context)
                 || MotorolaStNfcController.hasPendingRestore(context)
                 || HonorStNfcController.hasPendingRestore(context);
         if (vendorPending) requireReady();
@@ -296,6 +301,7 @@ final class PhoneNfcBackend implements PhoneNfcSession.Backend {
         } catch (Throwable error) {
             OemOperationReport report = OemNfcController.getLastOperationReport();
             OemOperationReport st = report == null ? null : report.stAttempt == null ? report : report.stAttempt;
+            if (st != null && st.path == OemOperationReport.Path.ST_VENDOR_HCE) CardSession.clearActiveCard();
             if (st != null && (st.path == OemOperationReport.Path.MOTOROLA_ST_VENDOR_HCE
                     || st.path == OemOperationReport.Path.HONOR_ST_VENDOR_HCE)
                     && Boolean.TRUE.equals(st.rollbackAttempted)) CardSession.clearActiveCard();
